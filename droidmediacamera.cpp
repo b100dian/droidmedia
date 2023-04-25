@@ -300,7 +300,11 @@ bool droid_media_camera_get_info(DroidMediaCameraInfo *info, int camera_number)
 {
     android::CameraInfo inf;
 
-    if (android::Camera::getCameraInfo(camera_number, &inf) != 0) {
+    if (android::Camera::getCameraInfo(camera_number,
+#if ANDROID_MAJOR >= 13
+                                       false/*overrideToPortrait*/,
+#endif
+                                       &inf) != 0) {
         return false;
     }
 
@@ -344,6 +348,12 @@ DroidMediaCamera *droid_media_camera_connect(int camera_number)
 					     android::Camera::USE_CALLING_UID
 #if (ANDROID_MAJOR >= 7)
 					     , android::Camera::USE_CALLING_PID
+#endif
+#if (ANDROID_MAJOR >= 12)
+					     , __ANDROID_API_FUTURE__
+#endif
+#if (ANDROID_MAJOR >= 13)
+					     , false
 #endif
 					      );
 #endif
