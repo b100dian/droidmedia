@@ -15,7 +15,7 @@
  *
  */
 
-#if ANDROID_MAJOR >= 7
+
 #include "droidmediacamera.h"
 
 #include <camera/CameraParameters.h>
@@ -173,7 +173,7 @@ struct _DroidMediaCamera
 
 static void still_image_available(void* context, AImageReader* reader)
 {
-    ALOGI("Still image available");
+    ALOGE("Still image available");
 // TODO send image data
     AImage *image;
     media_status_t status;
@@ -209,7 +209,7 @@ static void still_image_available(void* context, AImageReader* reader)
             }
 */
         default:
-            ALOGI("Unsupported image: %u", format);
+            ALOGE("Unsupported image: %u", format);
             break;
         }
         AImage_delete(image);
@@ -218,7 +218,7 @@ static void still_image_available(void* context, AImageReader* reader)
 
 static void device_on_disconnected(void *context, ACameraDevice *device)
 {
-    ALOGI("Camera '%s' is diconnected.", ACameraDevice_getId(device));
+    ALOGE("Camera '%s' is diconnected.", ACameraDevice_getId(device));
 }
 
 static void device_on_error(void *context, ACameraDevice *device, int error)
@@ -228,17 +228,17 @@ static void device_on_error(void *context, ACameraDevice *device, int error)
 
 static void capture_session_on_active(void *context, ACameraCaptureSession *session)
 {
-    ALOGI("Session is activated. %p", session);
+    ALOGE("Session is activated. %p", session);
 }
 
 static void capture_session_on_closed(void *context, ACameraCaptureSession *session)
 {
-    ALOGI("Session is closed. %p", session);
+    ALOGE("Session is closed. %p", session);
 }
 
 static void capture_session_on_ready(void *context, ACameraCaptureSession *session)
 {
-    ALOGI("Session is ready. %p", session);
+    ALOGE("Session is ready. %p", session);
 }
 
 static void capture_session_on_capture_started(
@@ -250,7 +250,7 @@ static void capture_session_on_capture_started(
 
     if (status == ACAMERA_OK &&
             entry.data.u8[0] == ACAMERA_CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
-        ALOGI("Calling shutter callback");
+        ALOGE("Calling shutter callback");
         DroidMediaCamera *camera = (DroidMediaCamera *)context;
         if (camera->m_cb.shutter_cb) {
             camera->m_cb.shutter_cb(camera->m_cb_data);
@@ -262,7 +262,7 @@ static void capture_session_on_capture_progressed(
     void* context, ACameraCaptureSession* session,
     ACaptureRequest* request, const ACameraMetadata* result)
 {
-    ALOGI("Capture progressed: %p", context);
+    ALOGE("Capture progressed: %p", context);
     //TODO
 }
 
@@ -270,33 +270,33 @@ static void capture_session_on_capture_completed(
     void *context, ACameraCaptureSession *session,
     ACaptureRequest *request, const ACameraMetadata *result)
 {
-    ALOGI("Capture completed: %p", context);
+    ALOGE("Capture completed: %p", context);
     ACameraMetadata_const_entry entry;
 
     camera_status_t status = ACameraMetadata_getConstEntry(result, ACAMERA_CONTROL_AF_TRIGGER, &entry);
                 DroidMediaCamera *camera = (DroidMediaCamera *)context;
     if (status == ACAMERA_OK) {
         uint8_t value = entry.data.u8[0];
-        ALOGI("AF trigger state: %i", value);
+        ALOGE("AF trigger state: %i", value);
         if (value == ACAMERA_CONTROL_AF_TRIGGER_START) {
-            ALOGI("AF trigger start found");
+            ALOGE("AF trigger start found");
             uint8_t afTrigger = ACAMERA_CONTROL_AF_TRIGGER_IDLE;
             status = ACaptureRequest_setEntry_u8(camera->m_preview_request,
                 ACAMERA_CONTROL_AF_TRIGGER, 1, &afTrigger);
 
             if (status == ACAMERA_OK) {
-                ALOGI("AF state: restart preview start");
+                ALOGE("AF state: restart preview start");
                 status = ACameraCaptureSession_setRepeatingRequest(camera->m_session, &camera->m_capture_callbacks, 1,
                     &camera->m_preview_request, NULL);
             }
         } else if (value == ACAMERA_CONTROL_AF_TRIGGER_CANCEL) {
-            ALOGI("AF trigger cancel found");
+            ALOGE("AF trigger cancel found");
             uint8_t afTrigger = ACAMERA_CONTROL_AF_TRIGGER_IDLE;
                 status = ACaptureRequest_setEntry_u8(camera->m_preview_request,
                 ACAMERA_CONTROL_AF_TRIGGER, 1, &afTrigger);
 
             if (status == ACAMERA_OK) {
-                ALOGI("AF state: restart preview cancel");
+                ALOGE("AF state: restart preview cancel");
                 status = ACameraCaptureSession_setRepeatingRequest(camera->m_session, &camera->m_capture_callbacks, 1,
                     &camera->m_preview_request, NULL);
             }
@@ -307,7 +307,7 @@ static void capture_session_on_capture_completed(
     if (status == ACAMERA_OK) {
         uint8_t value = entry.data.u8[0];
         int res = 0;
-        ALOGI("AF state: %i", value);
+        ALOGE("AF state: %i", value);
 
         if (value == ACAMERA_CONTROL_AF_STATE_PASSIVE_FOCUSED ||
             value == ACAMERA_CONTROL_AF_STATE_FOCUSED_LOCKED) {
@@ -316,7 +316,7 @@ static void capture_session_on_capture_completed(
             value == ACAMERA_CONTROL_AF_STATE_NOT_FOCUSED_LOCKED) {
             res = 0;
         }
-        ALOGI("AF state: %i", res);
+        ALOGE("AF state: %i", res);
         if (camera->m_cb.focus_cb && res >= 0) {
             camera->m_cb.focus_cb(camera->m_cb_data, res);
         }
@@ -327,38 +327,38 @@ static void capture_session_on_capture_failed(
     void* context, ACameraCaptureSession* session,
     ACaptureRequest* request, ACameraCaptureFailure* failure)
 {
-    ALOGI("Capture failed: %p", context);
+    ALOGE("Capture failed: %p", context);
 }
 
 static void capture_session_on_capture_sequence_completed(
     void* context, ACameraCaptureSession* session,
     int sequenceId, int64_t frameNumber)
 {
-    ALOGI("Capture sequence completed: %p", context);
+    ALOGE("Capture sequence completed: %p", context);
 }
 
 static void capture_session_on_capture_sequence_abort(
     void* context, ACameraCaptureSession* session, int sequenceId)
 {
-    ALOGI("Capture sequence aborted: %p", context);
+    ALOGE("Capture sequence aborted: %p", context);
 }
 
 static void capture_session_on_capture_buffer_lost(
     void* context, ACameraCaptureSession* session,
     ACaptureRequest* request, ACameraWindowType* window, int64_t frameNumber)
 {
-    ALOGI("Capture buffer lost: %p", context);
+    ALOGE("Capture buffer lost: %p", context);
 }
 
 DroidMediaBufferQueue *droid_media_camera_get_buffer_queue (DroidMediaCamera *camera)
 {
-    ALOGI("get_buffer_queue");
+    ALOGE("get_buffer_queue");
     return camera->m_queue.get();
 }
 
 DroidMediaBufferQueue *droid_media_camera_get_recording_buffer_queue (DroidMediaCamera *camera)
 {
-    ALOGI("get_recording_buffer_queue");
+    ALOGE("get_recording_buffer_queue");
     return camera->m_recording_queue.get();
 }
 
@@ -399,7 +399,7 @@ bool droid_media_camera_get_info(DroidMediaCameraInfo *info, int camera_number)
         ALOGE("Failed to get camera id list: %d", status);
         goto fail;
     }
-    ALOGI("Get info from camera %i of %i", camera_number, camera_id_list->numCameras);
+    ALOGE("Get info from camera %i of %i", camera_number, camera_id_list->numCameras);
 
     if (camera_id_list->numCameras <= 0 ||
             camera_number >= camera_id_list->numCameras) {
@@ -421,7 +421,7 @@ bool droid_media_camera_get_info(DroidMediaCameraInfo *info, int camera_number)
     if (ACameraMetadata_isLogicalMultiCamera(camera_metadata,
                                              &num_physical_cameras,
                                              &physical_camera_ids)) {
-        ALOGI("Multicamera with physical camera count %zu", num_physical_cameras);
+        ALOGE("Multicamera with physical camera count %zu", num_physical_cameras);
     }
 
     status = ACameraMetadata_getConstEntry(camera_metadata,
@@ -447,7 +447,8 @@ bool droid_media_camera_get_info(DroidMediaCameraInfo *info, int camera_number)
     }
 
     info->orientation = entry.data.i32[0];
-    ALOGI("Camera %i facing %i orientation %i", camera_number, info->facing, info->orientation);
+    ALOGE("Camera %i facing %i orientation %i", camera_number, info->facing, info->orientation);
+
 
 fail:
     if (camera_metadata) {
@@ -574,7 +575,7 @@ bool setup_capture_session(DroidMediaCamera *camera)
 {
     camera_status_t status;
 
-    ALOGI("setup_capture_session start");
+    ALOGE("setup_capture_session start");
 
     camera->m_queue->setBufferSize(camera->preview_width, camera->preview_height);
 
@@ -584,7 +585,7 @@ bool setup_capture_session(DroidMediaCamera *camera)
     }
 
     // Preview
-    ALOGI("setup_capture_session preview");
+    ALOGE("setup_capture_session preview");
     status = ACameraDevice_createCaptureRequest(camera->m_device,
         TEMPLATE_PREVIEW, &camera->m_preview_request);
     if (status != ACAMERA_OK) {
@@ -611,11 +612,11 @@ bool setup_capture_session(DroidMediaCamera *camera)
     if (status != ACAMERA_OK) {
         goto fail;
     }
-    ALOGI("setup_capture_session preview done");
+    ALOGE("setup_capture_session preview done");
 
     if (camera->m_video_mode) {
         // Video mode
-        ALOGI("setup_capture_session video start");
+        ALOGE("setup_capture_session video start");
         camera->m_queue->setBufferSize(camera->video_width, camera->video_height);
 
         status = ACameraOutputTarget_create(camera->m_recording_queue->window(), &camera->m_video_output_target);
@@ -638,10 +639,10 @@ bool setup_capture_session(DroidMediaCamera *camera)
         if (status != ACAMERA_OK) {
             goto fail;
         }
-        ALOGI("setup_capture_session video done");
+        ALOGE("setup_capture_session video done");
     } else {
         // Image mode
-        ALOGI("setup_capture_session image start");
+        ALOGE("setup_capture_session image start");
         status = ACameraDevice_createCaptureRequest(camera->m_device,
             TEMPLATE_STILL_CAPTURE, &camera->m_image_request);
         if (status != ACAMERA_OK) {
@@ -668,7 +669,7 @@ bool setup_capture_session(DroidMediaCamera *camera)
         if (status != ACAMERA_OK) {
             goto fail;
         }
-        ALOGI("setup_capture_session image done");
+        ALOGE("setup_capture_session image done");
     }
 
     status = ACameraDevice_createCaptureSession(
@@ -678,7 +679,7 @@ bool setup_capture_session(DroidMediaCamera *camera)
         goto fail;
     }
 
-    ALOGI("setup_capture_session done");
+    ALOGE("setup_capture_session done");
     return true;
 
 fail:
@@ -703,7 +704,7 @@ DroidMediaCamera *droid_media_camera_connect(int camera_number)
 
     camera->m_manager = ACameraManager_create();
 
-    ALOGI("Opening camera %i", camera_number);
+    ALOGE("Opening camera %i", camera_number);
 
     status = ACameraManager_getCameraIdList(camera->m_manager, &camera->m_camera_id_list);
     if (status != ACAMERA_OK) {
@@ -717,7 +718,7 @@ DroidMediaCamera *droid_media_camera_connect(int camera_number)
     }
 
     selected_camera_id = camera->m_camera_id_list->cameraIds[camera_number];
-    ALOGI("Selected camera %s", selected_camera_id);
+    ALOGE("Selected camera %s", selected_camera_id);
 
     // Set device state callbacks
     camera->m_device_state_callbacks.context = camera;
@@ -730,7 +731,7 @@ DroidMediaCamera *droid_media_camera_connect(int camera_number)
         goto fail;
     }
 
-    ALOGI("Camera %s opened", selected_camera_id);
+    ALOGE("Camera %s opened", selected_camera_id);
     camera->m_device = camera_device;
 
     status = ACameraManager_getCameraCharacteristics(camera->m_manager,
@@ -813,7 +814,7 @@ bool droid_media_camera_reconnect(DroidMediaCamera *camera)
 
 void droid_media_camera_disconnect(DroidMediaCamera *camera)
 {
-    ALOGI("disconnect");
+    ALOGE("disconnect");
     destroy_capture_session(camera);
 
     if (camera->m_image_reader) {
@@ -866,7 +867,7 @@ bool droid_media_camera_unlock(DroidMediaCamera *camera)
 
 bool droid_media_camera_start_preview(DroidMediaCamera *camera)
 {
-    ALOGI("start_preview");
+    ALOGE("start_preview");
     camera_status_t status;
     if (camera->m_preview_enabled) {
         return true;
@@ -885,14 +886,14 @@ bool droid_media_camera_start_preview(DroidMediaCamera *camera)
     }
 
     camera->m_preview_enabled = true;
-    ALOGI("start_preview success");
+    ALOGE("start_preview success");
 
     return true;
 }
 
 void droid_media_camera_stop_preview(DroidMediaCamera *camera)
 {
-    ALOGI("stop_preview");
+    ALOGE("stop_preview");
     if (camera->m_session) {
         ALOGE("Stopping preview");
         camera->m_preview_enabled = false;
@@ -904,14 +905,14 @@ void droid_media_camera_stop_preview(DroidMediaCamera *camera)
 
 bool droid_media_camera_is_preview_enabled(DroidMediaCamera *camera)
 {
-    ALOGI("is_preview_enabled");
+    ALOGE("is_preview_enabled");
     return camera->m_preview_enabled;
 }
 
 bool droid_media_camera_start_recording(DroidMediaCamera *camera)
 {
     // TODO start recording
-    ALOGI("start_recording");
+    ALOGE("start_recording");
 
     return false;
 }
@@ -919,18 +920,18 @@ bool droid_media_camera_start_recording(DroidMediaCamera *camera)
 void droid_media_camera_stop_recording(DroidMediaCamera *camera)
 {
     // TODO stop recording
-    ALOGI("stop_recording");
+    ALOGE("stop_recording");
 }
 
 bool droid_media_camera_is_recording_enabled(DroidMediaCamera *camera)
 {
-    ALOGI("is_recording_enabled");
+    ALOGE("is_recording_enabled");
     return camera->m_video_recording_enabled;
 }
 
 bool droid_media_camera_start_auto_focus(DroidMediaCamera *camera)
 {
-    ALOGI("start_auto_focus");
+    ALOGE("start_auto_focus");
     camera_status_t status;
     uint8_t afTrigger = ACAMERA_CONTROL_AF_TRIGGER_START;
 
@@ -949,7 +950,7 @@ bool droid_media_camera_start_auto_focus(DroidMediaCamera *camera)
 
 bool droid_media_camera_cancel_auto_focus(DroidMediaCamera *camera)
 {
-    ALOGI("cancel_auto_focus");
+    ALOGE("cancel_auto_focus");
     camera_status_t status;
     uint8_t afTrigger = ACAMERA_CONTROL_AF_TRIGGER_CANCEL;
 
@@ -968,14 +969,14 @@ bool droid_media_camera_cancel_auto_focus(DroidMediaCamera *camera)
 
 void droid_media_camera_set_callbacks(DroidMediaCamera *camera, DroidMediaCameraCallbacks *cb, void *data)
 {
-    ALOGI("set_callbacks");
+    ALOGE("set_callbacks");
     memcpy(&camera->m_cb, cb, sizeof(camera->m_cb));
     camera->m_cb_data = data;
 }
 
 bool droid_media_camera_send_command(DroidMediaCamera *camera, int32_t cmd, int32_t arg1, int32_t arg2)
 {
-    ALOGI("send_command");
+    ALOGE("send_command");
     // TODO Is send command needed?
     return false;
 }
@@ -989,7 +990,7 @@ bool droid_media_camera_store_meta_data_in_buffers(DroidMediaCamera *camera, boo
 void droid_media_camera_set_preview_callback_flags(DroidMediaCamera *camera, int preview_callback_flag)
 {
     // TODO set preview callback flags
-    ALOGI("set_preview_callback_flags");
+    ALOGE("set_preview_callback_flags %d", preview_callback_flag);
 //    camera->m_camera->setPreviewCallbackFlags(preview_callback_flag);
 }
 
@@ -1403,7 +1404,7 @@ void parse_pair_int32(std::string &str, char delim, int32_t &first, int32_t &sec
 }
 
 void update_request(DroidMediaCamera *camera, ACaptureRequest *request, std::unordered_map<std::string, std::string> &param_map) {
-     ALOGI("update_request");
+     ALOGE("update_request");
      uint8_t controlMode = ACAMERA_CONTROL_MODE_AUTO;
      ACaptureRequest_setEntry_u8(request,
          ACAMERA_CONTROL_MODE, 1, &controlMode);
@@ -1412,7 +1413,7 @@ void update_request(DroidMediaCamera *camera, ACaptureRequest *request, std::uno
      for (auto& it: param_map) {
          std::string key_s = it.first;
          std::string value_s = it.second;
-         ALOGI("set_parameters %s=%s", key_s.c_str(), value_s.c_str());
+         ALOGE("set_parameters %s=%s", key_s.c_str(), value_s.c_str());
          int32_t key;
          if ((key = param_key_string_to_enum(key_s.c_str())) >= 0) {
              switch (key) {
@@ -1549,7 +1550,7 @@ void update_request(DroidMediaCamera *camera, ACaptureRequest *request, std::uno
 
 bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *params)
 {
-    ALOGI("set_parameters");
+    ALOGE("set_parameters");
     if (!camera->m_device || !params) {
         return false;
     }
@@ -1575,7 +1576,7 @@ bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *par
         parse_pair_string(param, '=', key_s, value_s);
         param_map.insert({key_s, value_s});
 
-        ALOGI("set_parameters %s=%s", key_s.c_str(), value_s.c_str());
+        ALOGE("set_parameters %s=%s", key_s.c_str(), value_s.c_str());
 
         if (param_key_string_to_enum(key_s.c_str()) == -1) {
             if (!strcmp(key_s.c_str(), "picture-format")) {
@@ -1592,7 +1593,7 @@ bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *par
 
     if (!camera->m_image_reader || current_width != camera->image_width ||
         current_height != camera->image_height || current_format != camera->image_format) {
-        ALOGI("Updating image reader");
+        ALOGE("Updating image reader");
         setup_image_reader(camera);
     }
 
@@ -1605,11 +1606,11 @@ bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *par
     if (camera->m_preview_request) {
         update_request(camera, camera->m_preview_request, param_map);
         if (camera->m_preview_enabled) {
-            ALOGI("Updating viewfinder");
+            ALOGE("Updating viewfinder");
             status = ACameraCaptureSession_setRepeatingRequest(camera->m_session, &camera->m_capture_callbacks, 1,
                 &camera->m_preview_request, NULL);
             if (status != ACAMERA_OK) {
-                ALOGI("Updating preview failed");
+                ALOGE("Updating preview failed");
                 return false;
             }
         }
@@ -1620,7 +1621,7 @@ bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *par
 
 char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
 {
-    ALOGI("get_parameters");
+    ALOGE("get_parameters");
     camera_status_t status;
     std::string params;
     int32_t numEntries;
@@ -1632,7 +1633,7 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
 
     status = ACameraMetadata_getAllTags(camera->m_metadata, &numEntries, &tags);
     if (status != ACAMERA_OK) {
-        ALOGE("Failed to all tags from camera (status: %d)\n", status);
+        ALOGE("Failed to get all tags from camera (status: %d)\n", status);
         return NULL;
     }
 
@@ -1652,7 +1653,7 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
         ACameraMetadata_const_entry entry;
         status = ACameraMetadata_getConstEntry(camera->m_metadata, tags[i], &entry);
         if (status != ACAMERA_OK) {
-            ALOGI("Failed to get entry from camera (status: %d)\n", status);
+            ALOGE("Failed to get entry from camera (status: %d)\n", status);
             continue;
         }
 
@@ -1774,7 +1775,7 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
             break;
         case ACAMERA_CONTROL_VIDEO_STABILIZATION_MODE:
             if (entry.count > 1) {
-                 ALOGI("video stabilization supported");
+                 ALOGE("video stabilization supported");
                  params += "video-stabilization-supported = true;";
             }
             break;
@@ -1837,7 +1838,7 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
 
             std::set<int32_t>::iterator itr;
             for (itr = formats.begin(); itr != formats.end(); itr++) {
-                ALOGI("format %i %x", *itr, *itr);
+                ALOGE("format %i %x", *itr, *itr);
             }
             break;
         }
@@ -1846,7 +1847,7 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
         }
     }
 
-    ALOGI("get_parameters result: %s", params.c_str());
+    ALOGE("get_parameters result: %s", params.c_str());
     size_t len = params.length();
 
     char *c_params = (char *)malloc(len + 1);
@@ -1865,7 +1866,7 @@ bool droid_media_camera_take_picture(DroidMediaCamera *camera, int msgType)
 {
     int seq_id;
     camera_status_t status;
-    ALOGI("take_picture");
+    ALOGE("take_picture");
 
     if (!camera->m_session) {
         return false;
@@ -1904,7 +1905,7 @@ bool droid_media_camera_enable_face_detection(DroidMediaCamera *camera,
                                               DroidMediaCameraFaceDetectionType type,
                                               bool enable)
 {
-    ALOGI("enable_face_detection enable: %i", enable);
+    ALOGE("enable_face_detection enable: %i", enable);
     camera_status_t status;
     uint8_t faceDetectMode = enable ? ACAMERA_STATISTICS_FACE_DETECT_MODE_SIMPLE
                                     : ACAMERA_STATISTICS_FACE_DETECT_MODE_OFF;
@@ -1917,7 +1918,7 @@ bool droid_media_camera_enable_face_detection(DroidMediaCamera *camera,
 int32_t droid_media_camera_get_video_color_format(DroidMediaCamera *camera)
 {
     // TODO get video color format
-    ALOGI("get_video_color_format");
+    ALOGE("get_video_color_format");
     //return AIMAGE_FORMAT_YUV_420_888;
     return AIMAGE_FORMAT_PRIVATE;
 }
@@ -1930,4 +1931,3 @@ android::sp<android::Camera> droid_media_camera_get_camera(DroidMediaCamera *cam
     return NULL;
 }
 
-#endif
