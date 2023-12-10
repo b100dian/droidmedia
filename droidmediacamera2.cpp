@@ -1277,6 +1277,48 @@ const char *effect_mode_enum_to_string(uint8_t effect_mode, bool &found)
     }
 }
 
+int noise_reduction_string_to_enum(const char *noise_reduction)
+{
+    return
+        !noise_reduction ?
+            ACAMERA_NOISE_REDUCTION_MODE_OFF :
+        !strcmp(noise_reduction, "off") ?
+            ACAMERA_NOISE_REDUCTION_MODE_OFF :
+        !strcmp(noise_reduction, "fast") ?
+            ACAMERA_NOISE_REDUCTION_MODE_FAST :
+        !strcmp(noise_reduction, "high-quality") ?
+            ACAMERA_NOISE_REDUCTION_MODE_HIGH_QUALITY :
+        !strcmp(noise_reduction, "minimal") ?
+            ACAMERA_NOISE_REDUCTION_MODE_MINIMAL :
+        !strcmp(noise_reduction, "zsl") ?
+            ACAMERA_NOISE_REDUCTION_MODE_ZERO_SHUTTER_LAG :
+        -1;
+}
+
+const char *noise_reduction_enum_to_string(uint8_t noise_reduction, bool &found)
+{
+    found = true;
+    switch (noise_reduction) {
+        case ACAMERA_NOISE_REDUCTION_MODE_OFF:
+            return "off";
+        case ACAMERA_NOISE_REDUCTION_MODE_FAST:
+            return "fast";
+        case ACAMERA_NOISE_REDUCTION_MODE_HIGH_QUALITY:
+            return "high-quality";
+        case ACAMERA_NOISE_REDUCTION_MODE_MINIMAL:
+            return "minimal";
+        case ACAMERA_NOISE_REDUCTION_MODE_ZERO_SHUTTER_LAG:
+            return "zsl";
+        default:
+            found = false;
+            ALOGE("%s: Unknown noise reduction enum: %d",
+                    __FUNCTION__, noise_reduction);
+            return "";
+    }
+}
+
+
+
 int ab_mode_string_to_enum(const char *ab_mode)
 {
     return
@@ -1530,6 +1572,8 @@ int param_key_string_to_enum(const char *key)
 #else
 //TODO
 #endif
+        !strcmp(key, "noise-reduction") ?
+            ACAMERA_NOISE_REDUCTION :
         !strcmp(key, android::CameraParameters::KEY_VIDEO_STABILIZATION) ?
             ACAMERA_CONTROL_VIDEO_STABILIZATION_MODE :
         !strcmp(key, "edge-mode") ?
@@ -1660,6 +1704,14 @@ void update_request(DroidMediaCamera *camera, ACaptureRequest *request, std::uno
                  }
                  ACaptureRequest_setEntry_u8(request, key, 1, &value);
                  break;
+             }
+             case ACAMERA_NOISE_REDUCTION: {
+                uint8_t mode;
+                if ((mode = noise_reduction_string_to_enum(value_s.c_str())) != -1) {
+                    ALOGE("ACAMERA_NOISE_REDUCTION %d", mode);
+                    ACaptureRequest_setEntry_u8(request, key, 1, &mode);
+                }
+                break;
              }
              case ACAMERA_CONTROL_AWB_MODE: {
                  uint8_t mode;
@@ -1980,6 +2032,18 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
                 params += "auto-whitebalance-lock-supported=false;";
             }
             break;
+        case ACAMERA_NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES:
+            if (entry.count > 0) {
+                bool found = false;
+                std::string em = "noisereduction-modes=";
+                for (int32_t j = 0; j < entry.count; j++) {
+                    if (found)
+                        em += ",";
+                    em += noise_reduction_enum_to_string(entry.data.u8[j], found);
+                }
+                params += em + ";";
+            }
+            break;
         case ACAMERA_CONTROL_MAX_REGIONS:
             if (entry.count > 0) {
                  params += "max-num-focus-areas="+std::to_string(entry.data.u8[2])+";";
@@ -2185,5 +2249,3 @@ ANativeWindow *droid_media_camera_get_external_video_window(DroidMediaCamera *ca
     return camera->m_video_anw;
 }
 
-
-#endif
