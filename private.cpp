@@ -91,7 +91,7 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
 #if (ANDROID_MAJOR < 8)
   m_queue->setDefaultBufferFormat(HAL_PIXEL_FORMAT_YCbCr_420_888);
 #else
-  m_queue->setDefaultBufferFormat(HAL_PIXEL_FORMAT_YCBCR_420_888);
+  m_queue->setDefaultBufferFormat(HAL_PIXEL_FORMAT_BGRA_8888);
 #endif
 }
 
