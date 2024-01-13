@@ -1500,7 +1500,7 @@ int param_key_string_to_enum(const char *key)
 //TODO
 #endif
         !strcmp(key, "noise-reduction") ?
-            ACAMERA_NOISE_REDUCTION :
+            ACAMERA_NOISE_REDUCTION_MODE :
         !strcmp(key, android::CameraParameters::KEY_VIDEO_STABILIZATION) ?
             ACAMERA_CONTROL_VIDEO_STABILIZATION_MODE :
         !strcmp(key, "edge-mode") ?
@@ -1632,7 +1632,7 @@ void update_request(DroidMediaCamera *camera, ACaptureRequest *request, std::uno
                  ACaptureRequest_setEntry_u8(request, key, 1, &value);
                  break;
              }
-             case ACAMERA_NOISE_REDUCTION: {
+             case ACAMERA_NOISE_REDUCTION_MODE: {
                 uint8_t mode;
                 if ((mode = noise_reduction_string_to_enum(value_s.c_str())) != -1) {
                     ALOGE("ACAMERA_NOISE_REDUCTION %d", mode);
@@ -2276,4 +2276,4 @@ bool droid_media_camera_remove_external_video_window(DroidMediaCamera *camera, A
     return true;
 }
 
-#endif
+//#endif
