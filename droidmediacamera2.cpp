@@ -136,6 +136,8 @@ struct _DroidMediaCamera
 
     // Requests
     ACaptureRequest *m_preview_request = NULL;
+    std::unordered_map<std::string, std::string> m_param_map;
+
     ACaptureRequest *m_image_request = NULL;
     ACaptureRequest *m_video_request = NULL;
     ACaptureRequest *m_ext_video_request = NULL;
@@ -907,6 +909,9 @@ bool droid_media_camera_unlock(DroidMediaCamera *camera)
     return true;
 }
 
+// Forward declaration.
+void update_request(DroidMediaCamera *camera, ACaptureRequest *request, std::unordered_map<std::string, std::string> &param_map);
+
 bool droid_media_camera_start_preview(DroidMediaCamera *camera)
 {
     ALOGE("start_preview");
@@ -918,6 +923,21 @@ bool droid_media_camera_start_preview(DroidMediaCamera *camera)
     if (!setup_capture_session(camera)) {
         ALOGE("Failed to setup capture session");
         return false;
+    }
+
+    if (camera->m_image_request) {
+        ALOGI("update_request image mode again.");
+        update_request(camera, camera->m_image_request, camera->m_param_map);
+    }
+
+    if (camera->m_video_request) {
+        ALOGI("update_request video mode again.");
+        update_request(camera, camera->m_video_request, camera->m_param_map);
+    }
+
+    if (camera->m_preview_request) {
+        ALOGI("update_request preview again.");
+        update_request(camera, camera->m_preview_request, camera->m_param_map);
     }
 
     status = ACameraCaptureSession_setRepeatingRequest(camera->m_session, &camera->m_capture_callbacks, 1,
@@ -1779,6 +1799,10 @@ bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *par
     }
 
     ALOGI("update_request preview");
+    if (!camera->m_preview_request) {
+        ALOGE("Not even preview, copy to try again later");
+        camera->m_param_map = param_map;
+    }
     if (camera->m_preview_request) {
         ALOGI("update_request preview found");
         update_request(camera, camera->m_preview_request, param_map);
@@ -1850,6 +1874,9 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
                 }
                 params += ab + ";";
             }
+            break;
+        case ACAMERA_CONTROL_AE_EXPOSURE_COMPENSATION:
+            params += "exposure-compensation="+std::to_string(entry.data.i32[0]);
             break;
         case ACAMERA_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES: {
             if (entry.count > 0) {
