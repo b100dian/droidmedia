@@ -300,7 +300,11 @@ bool droid_media_camera_get_info(DroidMediaCameraInfo *info, int camera_number)
 {
     android::CameraInfo inf;
 
-    if (android::Camera::getCameraInfo(camera_number, &inf) != 0) {
+    if (android::Camera::getCameraInfo(camera_number,
+#if ANDROID_MAJOR >= 13 && (!defined(LEGACY_ANDROID_13_REVISION) || LEGACY_ANDROID_13_REVISION >= 32)
+                                       false/*overrideToPortrait*/,
+#endif
+                                       &inf) != 0) {
         return false;
     }
 
@@ -340,10 +344,23 @@ DroidMediaCamera *droid_media_camera_connect(int camera_number)
     android::OK != android::Camera::connectLegacy(camera_number, FORCE_HAL << 8, android::String16("droidmedia"),
 					     android::Camera::USE_CALLING_UID, cam->m_camera);
 #else // Default connect
+#if (ANDROID_MAJOR >= 14)
+    cam->m_camera = android::Camera::connect(camera_number, "droidmedia",
+#else
     cam->m_camera = android::Camera::connect(camera_number, android::String16("droidmedia"),
+#endif
 					     android::Camera::USE_CALLING_UID
 #if (ANDROID_MAJOR >= 7)
 					     , android::Camera::USE_CALLING_PID
+#endif
+#if (ANDROID_MAJOR >= 12)
+					     , __ANDROID_API_FUTURE__
+#endif
+#if (ANDROID_MAJOR >= 13) && (!defined(LEGACY_ANDROID_13_REVISION) || LEGACY_ANDROID_13_REVISION >= 32)
+					     , false
+#endif
+#if (ANDROID_MAJOR >= 13) && (!defined(LEGACY_ANDROID_13_REVISION) || LEGACY_ANDROID_13_REVISION >= 50)
+					     , false
 #endif
 					      );
 #endif
@@ -489,7 +506,11 @@ bool droid_media_camera_set_parameters(DroidMediaCamera *camera, const char *par
 char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
 {
     android::String8 p = camera->m_camera->getParameters();
+#if ANDROID_MAJOR >= 14
+    if (p.empty()) {
+#else
     if (p.isEmpty()) {
+#endif
         ALOGE("Failed to get camera parameters");
         return NULL;
     }
@@ -502,7 +523,11 @@ char *droid_media_camera_get_parameters(DroidMediaCamera *camera)
         return NULL;
     }
 
+#if ANDROID_MAJOR >= 14
+    memcpy(params, p.c_str(), len);
+#else
     memcpy(params, p.string(), len);
+#endif
     params[len] = '\0';
 
     return params;

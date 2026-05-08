@@ -81,9 +81,8 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
 #if (ANDROID_MAJOR == 4 && ANDROID_MINOR < 4)
   m_queue->setSynchronousMode(false);
 #else
-  // We need to acquire up to 2 buffers
-  // One is being rendered and the other one is waiting to be rendered.
-  m_queue->setMaxAcquiredBufferCount(2);
+  // Some devices require more than 2 buffers
+  m_queue->setMaxAcquiredBufferCount(4);
 #endif
 
   m_queue->setConsumerName(android::String8(name));
