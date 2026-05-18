@@ -67,7 +67,7 @@ public:
 
 struct _DroidMediaBufferQueue : public android::RefBase {
 public:
-  _DroidMediaBufferQueue(const char *name);
+  _DroidMediaBufferQueue(const char *name, bool preview = true);
   ~_DroidMediaBufferQueue();
 
   bool connectListener();

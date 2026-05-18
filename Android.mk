@@ -91,7 +91,7 @@ LOCAL_SHARED_LIBRARIES := libc \
                           libmedia
 
 
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 7 && echo true),true)
+ifeq ($(shell test $(ANDROID_MAJOR) -ge 9 && echo true),true)
 LOCAL_SRC_FILES += droidmediacamera2.cpp \
                    droidmediarecorder2.cpp \
                    droidmediacodec.cpp

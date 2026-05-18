@@ -62,7 +62,7 @@ void DroidMediaBufferQueueListener::onBuffersReleased()
   }
 }
 
-_DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
+_DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name, bool preview) :
 #if ANDROID_MAJOR > 5
   m_unslotted({}),
 #endif
@@ -86,7 +86,7 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
 #endif
 
   m_queue->setConsumerName(android::String8(name));
-  m_queue->setConsumerUsageBits(android::GraphicBuffer::USAGE_HW_TEXTURE);
+  m_queue->setConsumerUsageBits(preview ? android::GraphicBuffer::USAGE_HW_TEXTURE : android::GraphicBuffer::USAGE_SW_READ_OFTEN);
 #if (ANDROID_MAJOR < 8)
   m_queue->setDefaultBufferFormat(HAL_PIXEL_FORMAT_YCbCr_420_888);
 #else

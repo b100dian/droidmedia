@@ -15,14 +15,18 @@
  */
 
 #include <utils/Condition.h>
+#include <condition_variable>
+#include <list>
+#include <mutex>
 
+// This needs to be first because of broken includes in Android < 10
+#include <camera/NdkCaptureRequest.h>
 #include <camera/NdkCameraCaptureSession.h>
 #include <camera/NdkCameraDevice.h>
 #include <camera/NdkCameraError.h>
 #include <camera/NdkCameraManager.h>
 #include <camera/NdkCameraMetadata.h>
 #include <camera/NdkCameraMetadataTags.h>
-#include <camera/NdkCaptureRequest.h>
 #include <media/hardware/MetadataBufferType.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkImage.h>
@@ -144,11 +148,10 @@ struct _DroidMediaRecorder {
     DroidMediaCodecDataCallbacks m_cb;
     void *m_cb_data;
 
+    AMediaCodec *m_codec = NULL;
     std::mutex m_mutex;
     std::condition_variable m_condition;
     std::list<callback_object> m_output_queue;
-
-    AMediaCodec *m_codec = NULL;
     AMediaCodecOnAsyncNotifyCallback m_codec_on_async_notify_callbacks;
     ANativeWindow *m_input_window = NULL;
 
@@ -323,7 +326,11 @@ void droid_media_recorder_stop(DroidMediaRecorder *recorder)
 {
     ALOGI("recorder_stop");
 
-    recorder->m_running = false;
+    {
+        std::unique_lock<std::mutex> lock{recorder->m_mutex};
+        recorder->m_running = false;
+        recorder->m_condition.notify_all();
+    }
 
     void *dummy;
     pthread_join(recorder->m_thread, &dummy);
