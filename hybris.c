@@ -21,6 +21,7 @@
 #include "droidmediaconvert.h"
 #include "droidmediaconstants.h"
 #include "droidmediarecorder.h"
+#include "screen_capture_encoder.h"
 #include <dlfcn.h>
 #include <assert.h>
 #include <stdio.h>
@@ -255,6 +256,30 @@ HYBRIS_WRAPPER_0_0(droid_media_deinit)
 HYBRIS_WRAPPER_1_2(DroidMediaBuffer*,DroidMediaBufferQueue*,DroidMediaBufferCallbacks*,droid_media_buffer_queue_acquire_buffer)
 HYBRIS_WRAPPER_0_3(DroidMediaBufferQueue*,DroidMediaBufferQueueCallbacks*,void*,droid_media_buffer_queue_set_callbacks)
 HYBRIS_WRAPPER_1_2(bool,DroidMediaBufferQueue*,DroidMediaBufferInfo*,droid_media_buffer_queue_acquire_and_release)
+HYBRIS_WRAPPER_0_3(int,int,DroidMediaBufferQueue**,droid_media_screen_capture_init)
+HYBRIS_WRAPPER_1_0(DroidMediaBufferQueue*,droid_media_screen_capture_consumer_new)
+HYBRIS_WRAPPER_1_2(int,int*,int*,droid_media_screen_capture_get_dimensions)
+
+/* screen_capture_encoder wrappers */
+ScreenCaptureEncoder *
+screen_capture_encoder_new(void *queue, int width, int height,
+                          int colorFormat, int bitrate, int fps,
+                          const ScreenCaptureEncoderCallbacks *callbacks,
+                          void *cbUser)
+{
+    static ScreenCaptureEncoder *(*_sym)(void*, int, int, int, int, int,
+                                         const ScreenCaptureEncoderCallbacks*,
+                                         void*) = NULL;
+    if (!_sym)
+        _sym = __resolve_sym("screen_capture_encoder_new");
+    return _sym(queue, width, height, colorFormat, bitrate, fps,
+                callbacks, cbUser);
+}
+
+HYBRIS_WRAPPER_0_1(ScreenCaptureEncoder*,screen_capture_encoder_destroy)
+HYBRIS_WRAPPER_1_1(bool,ScreenCaptureEncoder*,screen_capture_encoder_start)
+HYBRIS_WRAPPER_0_1(ScreenCaptureEncoder*,screen_capture_encoder_stop)
+
 HYBRIS_WRAPPER_0_1(DroidMediaCameraConstants*,droid_media_camera_constants_init)
 HYBRIS_WRAPPER_0_1(DroidMediaPixelFormatConstants*,droid_media_pixel_format_constants_init)
 HYBRIS_WRAPPER_0_1(DroidMediaColourFormatConstants*,droid_media_colour_format_constants_init)

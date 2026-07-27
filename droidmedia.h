@@ -123,6 +123,12 @@ void droid_media_buffer_queue_set_callbacks(DroidMediaBufferQueue *queue,
 					    DroidMediaBufferQueueCallbacks *cb, void *data);
 int droid_media_buffer_queue_length();
 
+/* screen_capture.cpp */
+void droid_media_screen_capture_init(int width, int height,
+    DroidMediaBufferQueue **out_queue);
+DroidMediaBufferQueue *droid_media_screen_capture_consumer_new(void);
+int droid_media_screen_capture_get_dimensions(int *width, int *height);
+
 #ifdef __cplusplus
 };
 #endif

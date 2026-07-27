@@ -66,6 +66,17 @@ public:
 struct _DroidMediaBufferQueue : public android::RefBase {
 public:
   _DroidMediaBufferQueue(const char *name);
+
+  /* NEW — Component B: wrap an externally-created producer (HWC plugin side).
+   * The producer is already configured; we just hold a reference and expose
+   * it via window() / accessor so the HWC plugin can call dequeue/queue.*/
+  explicit _DroidMediaBufferQueue(android::sp<android::IGraphicBufferProducer> producer);
+
+  /* NEW — Component B: wrap an externally-fetched consumer (GStreamer side).
+   * connectListener() must be called after construction to hook the
+   * onFrameAvailable callback. */
+  explicit _DroidMediaBufferQueue(android::sp<android::IGraphicBufferConsumer> consumer);
+
   ~_DroidMediaBufferQueue();
 
   bool connectListener();
@@ -80,6 +91,12 @@ public:
   void setCallbacks(DroidMediaBufferQueueCallbacks *cb, void *data);
 
   void buffersReleased();
+
+  /* NEW — accessors for screen capture:
+   *   producer() — returns the IGraphicBufferProducer (HWC side)
+   *   consumer() — returns the IGraphicBufferConsumer (GStreamer side) */
+  android::sp<android::IGraphicBufferProducer> producer() const { return m_producer; }
+  android::sp<android::IGraphicBufferConsumer> consumer() const { return m_queue; }
 
 private:
   friend class DroidMediaBufferQueueListener;

@@ -25,6 +25,7 @@
 #include "allocator.h"
 #endif
 #include "services/services.h"
+#include "screen_capture_service.h"
 
 using namespace android;
 
@@ -34,7 +35,8 @@ void startMiniSurfaceFlinger()
     sp<ProcessState> proc(ProcessState::self());
     sp<IServiceManager> sm = defaultServiceManager();
 
-    if (sm->checkService(String16("SurfaceFlinger")) == NULL)
+    if (sm->checkService(String16("SurfaceFlingerAIDL")) == NULL &&
+        sm->checkService(String16("SurfaceFlinger"))     == NULL)
     {
         MiniSurfaceFlinger::instantiate();
     }
@@ -42,6 +44,10 @@ void startMiniSurfaceFlinger()
     {
         ALOGW("SurfaceFlinger service already running, so we won't start it here. If you have trouble with media, try disabling the minisf service.");
     }
+
+    // Always register ScreenCaptureService. Harmless if no HWC plugin has
+    // set a consumer yet — the service just returns NULL getConsumer().
+    ScreenCaptureService::instantiate();
 
     ProcessState::self()->startThreadPool();
 

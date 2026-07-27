@@ -75,7 +75,11 @@ LOCAL_SRC_FILES := droidmedia.cpp \
                    droidmediarecorder.cpp \
                    allocator.cpp \
                    droidmediabuffer.cpp \
-                   private.cpp
+                   private.cpp \
+                   screen_capture.cpp \
+                   screen_capture_service.cpp \
+                   screen_capture_mediasource.cpp \
+                   screen_capture_encoder.cpp
 
 ifeq ($(shell test $(ANDROID_MAJOR) -ge 7 && echo true),true)
 LOCAL_SRC_FILES += AsyncCodecSource.cpp
@@ -143,6 +147,32 @@ LOCAL_C_INCLUDES += frameworks/av/media/libmediaextractor/include
 endif
 
 include $(BUILD_SHARED_LIBRARY)
+
+# ---------------------------------------------------------------------------
+# screencap_enc_test — Phase-0 standalone encoder validation harness
+# ---------------------------------------------------------------------------
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES := tools/screencap_enc_test.cpp
+LOCAL_SHARED_LIBRARIES := libdroidmedia \
+                          libstagefright \
+                          libstagefright_foundation \
+                          libmedia \
+                          libui \
+                          libutils \
+                          libcutils \
+                          libbinder
+LOCAL_MODULE_TAGS := optional
+LOCAL_CPPFLAGS := -DANDROID_MAJOR=$(ANDROID_MAJOR) -DANDROID_MINOR=$(ANDROID_MINOR) -DANDROID_MICRO=$(ANDROID_MICRO) -Wno-unused-parameter
+ifeq ($(shell test $(ANDROID_MAJOR) -ge 8 && echo true),true)
+LOCAL_SHARED_LIBRARIES += liblog
+endif
+LOCAL_C_INCLUDES := frameworks/native/include/media/openmax \
+                    frameworks/native/include/media/hardware
+ifeq ($(shell test $(ANDROID_MAJOR) -ge 11 && echo true),true)
+LOCAL_C_INCLUDES += frameworks/av/media/libstagefright/include
+endif
+LOCAL_MODULE := screencap_enc_test
+include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES := minimedia.cpp
@@ -425,7 +455,8 @@ include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES := libminisf.cpp allocator.cpp
-LOCAL_SHARED_LIBRARIES := libutils \
+LOCAL_SHARED_LIBRARIES := libdroidmedia \
+                          libutils \
                           libbinder \
                           libmedia \
                           libgui \

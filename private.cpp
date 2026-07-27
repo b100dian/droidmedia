@@ -98,6 +98,32 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
 #endif
 }
 
+/* Component B — producer-side wrapper (HWC plugin process).
+ * The caller (droid_media_screen_capture_init) already configured the
+ * consumer (format/usage/size) before storing it. We just hold the
+ * producer reference. */
+_DroidMediaBufferQueue::_DroidMediaBufferQueue(android::sp<android::IGraphicBufferProducer> producer) :
+  m_producer(producer),
+  m_listener(NULL),  /* no listener needed on the producer side */
+  m_data(0)
+{
+  memset(&m_cb, 0x0, sizeof(m_cb));
+  m_queue = NULL;
+}
+
+/* Component B — consumer-side wrapper (GStreamer process).
+ * The consumer was already configured by the producer side and fetched
+ * via ScreenCaptureService Binder. connectListener() must be called
+ * after construction. */
+_DroidMediaBufferQueue::_DroidMediaBufferQueue(android::sp<android::IGraphicBufferConsumer> consumer) :
+  m_queue(consumer),
+  m_listener(new DroidMediaBufferQueueListener(this)),
+  m_data(0)
+{
+  memset(&m_cb, 0x0, sizeof(m_cb));
+  m_producer = NULL;
+}
+
 _DroidMediaBufferQueue::~_DroidMediaBufferQueue()
 {
   disconnectListener();
@@ -106,6 +132,11 @@ _DroidMediaBufferQueue::~_DroidMediaBufferQueue()
 
 bool _DroidMediaBufferQueue::connectListener()
 {
+  if (m_queue == NULL) {
+    // producer-side wrapper — no consumer to connect
+    return true;
+  }
+
 #if (ANDROID_MAJOR == 4 && ANDROID_MINOR < 4)
   if (m_queue->consumerConnect(m_listener) != android::NO_ERROR) {
 #else
@@ -121,10 +152,13 @@ bool _DroidMediaBufferQueue::connectListener()
 
 void _DroidMediaBufferQueue::disconnectListener()
 {
-  m_queue->consumerDisconnect();
+  if (m_queue != NULL) {
+    m_queue->consumerDisconnect();
+  }
 }
 
 void _DroidMediaBufferQueue::attachToCameraPreview(android::sp<android::Camera>& camera) {
+  if (m_producer == NULL && m_queue == NULL) return;  // consumer-side wrapper, nothing to attach
 #if ANDROID_MAJOR == 4 && ANDROID_MINOR < 4
     camera->setPreviewTexture(m_queue);
 #elif ANDROID_MAJOR < 5
@@ -135,12 +169,17 @@ void _DroidMediaBufferQueue::attachToCameraPreview(android::sp<android::Camera>&
 }
 
 void _DroidMediaBufferQueue::attachToCameraVideo(android::sp<android::Camera>& camera) {
+  if (m_producer == NULL) return;  // consumer-side wrapper
 #if ANDROID_MAJOR >= 9
     camera->setVideoTarget(m_producer);
 #endif
 }
 
 ANativeWindow *_DroidMediaBufferQueue::window() {
+  if (m_producer == NULL) {
+    // consumer-side wrapper or producer not set — no ANativeWindow
+    return NULL;
+  }
 #if ANDROID_MAJOR == 4 && ANDROID_MINOR < 4
   android::sp<android::ISurfaceTexture> texture = m_queue;
   return new android::SurfaceTextureClient(texture);
@@ -155,6 +194,11 @@ ANativeWindow *_DroidMediaBufferQueue::window() {
 
 void _DroidMediaBufferQueue::frameAvailable() {
   DroidMediaBufferItem item;
+
+  if (m_queue == NULL) {
+    // producer-side wrapper — no consumer, nothing to acquire
+    return;
+  }
 
 #if (ANDROID_MAJOR == 4 && ANDROID_MINOR < 4)
   int err = m_queue->acquireBuffer(&item);
@@ -239,6 +283,10 @@ void _DroidMediaBufferQueue::buffersReleased() {
 }
 
 int _DroidMediaBufferQueue::releaseMediaBuffer(int index, EGLDisplay dpy, EGLSyncKHR fence) {
+    if (m_queue == NULL) {
+      // producer-side wrapper — no consumer to release to
+      return android::INVALID_OPERATION;
+    }
 
     int err = m_queue->releaseBuffer(index,
 #if (ANDROID_MAJOR == 4 && ANDROID_MINOR == 4) || ANDROID_MAJOR >= 5
