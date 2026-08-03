@@ -50,12 +50,15 @@ typedef struct {
  * colorFormat — OMX_COLOR_FormatAndroidOpaque or similar
  * bitrate    — target bitrate in bps
  * fps        — frame rate
+ * metadataMode — request metadata input; copy mode is used by default and
+ *                metadata mode falls back to copy mode if codec creation fails
  * callbacks  — output callbacks
  * cbUser     — passed to callbacks
  */
 ScreenCaptureEncoder *
 screen_capture_encoder_new(void *queue, int width, int height,
                            int colorFormat, int bitrate, int fps,
+                           bool metadataMode,
                            const ScreenCaptureEncoderCallbacks *callbacks,
                            void *cbUser);
 

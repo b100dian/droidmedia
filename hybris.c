@@ -257,6 +257,7 @@ HYBRIS_WRAPPER_1_2(DroidMediaBuffer*,DroidMediaBufferQueue*,DroidMediaBufferCall
 HYBRIS_WRAPPER_0_3(DroidMediaBufferQueue*,DroidMediaBufferQueueCallbacks*,void*,droid_media_buffer_queue_set_callbacks)
 HYBRIS_WRAPPER_1_2(bool,DroidMediaBufferQueue*,DroidMediaBufferInfo*,droid_media_buffer_queue_acquire_and_release)
 HYBRIS_WRAPPER_0_3(int,int,DroidMediaBufferQueue**,droid_media_screen_capture_init)
+HYBRIS_WRAPPER_0_1(DroidMediaBufferQueue*,droid_media_screen_capture_queue_destroy)
 HYBRIS_WRAPPER_1_0(DroidMediaBufferQueue*,droid_media_screen_capture_consumer_new)
 HYBRIS_WRAPPER_1_2(int,int*,int*,droid_media_screen_capture_get_dimensions)
 
@@ -264,16 +265,17 @@ HYBRIS_WRAPPER_1_2(int,int*,int*,droid_media_screen_capture_get_dimensions)
 ScreenCaptureEncoder *
 screen_capture_encoder_new(void *queue, int width, int height,
                           int colorFormat, int bitrate, int fps,
+                          bool metadataMode,
                           const ScreenCaptureEncoderCallbacks *callbacks,
                           void *cbUser)
 {
-    static ScreenCaptureEncoder *(*_sym)(void*, int, int, int, int, int,
-                                         const ScreenCaptureEncoderCallbacks*,
-                                         void*) = NULL;
+    static ScreenCaptureEncoder *(*_sym)(void*, int, int, int, int, int, bool,
+                                             const ScreenCaptureEncoderCallbacks*,
+                                             void*) = NULL;
     if (!_sym)
         _sym = __resolve_sym("screen_capture_encoder_new");
     return _sym(queue, width, height, colorFormat, bitrate, fps,
-                callbacks, cbUser);
+                    metadataMode, callbacks, cbUser);
 }
 
 HYBRIS_WRAPPER_0_1(ScreenCaptureEncoder*,screen_capture_encoder_destroy)

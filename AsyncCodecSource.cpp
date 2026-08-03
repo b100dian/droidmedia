@@ -39,13 +39,14 @@ using namespace android;
 
 #if ANDROID_MAJOR > 7
 #include <media/MediaCodecBuffer.h>
+#include <media/MediaBufferHolder.h>
 #else
 #include <media/stagefright/foundation/ABuffer.h>
 typedef ABuffer MediaCodecBuffer;
 #endif
 
 #define LOG_TAG "AsyncCodecSource"
-
+#define SCREEN_CAPTURE_METADATA_KEY 0x73636d64
 
 AsyncCodecSource::SourceReader::SourceReader(AsyncCodecSource *codec,
                                              const sp<MediaSource> source)
@@ -58,12 +59,15 @@ AsyncCodecSource::SourceReader::SourceReader(AsyncCodecSource *codec,
 
 AsyncCodecSource::SourceReader::~SourceReader()
 {
-    {
-        Mutex::Autolock lock(mInputIndices.lock);
-        mRunning = false;
-        mInputIndices.cond.signal();
-    }
+    requestStop();
     requestExitAndWait();
+}
+
+void AsyncCodecSource::SourceReader::requestStop()
+{
+    Mutex::Autolock lock(mInputIndices.lock);
+    mRunning = false;
+    mInputIndices.cond.signal();
 }
 
 size_t AsyncCodecSource::SourceReader::waitForInputBuffer()
@@ -76,6 +80,11 @@ size_t AsyncCodecSource::SourceReader::waitForInputBuffer()
             mInputIndices.lock.unlock();
             return std::string::npos;
         }
+    }
+
+    if (!mRunning) {
+        mInputIndices.lock.unlock();
+        return std::string::npos;
     }
 
     size_t index = *mInputIndices.buffers.begin();
@@ -93,14 +102,23 @@ bool AsyncCodecSource::SourceReader::threadLoop(void)
     }
 
     DroidMediaBuffer *buffer = nullptr;
-    mSource->read(&buffer);
+    status_t err = mSource->read(&buffer);
 
-    if (buffer) {
-        mCodec->queueInputBuffer(buffer, index);
+    if (err == OK && buffer != nullptr && mRunning) {
+        if (!mCodec->queueInputBuffer(buffer, index)) {
+            buffer->release();
+            requestStop();
+            return false;
+        }
         buffer->release();
     } else {
-        mCodec->queueEOS(index);
-        mRunning = false;
+        if (buffer != nullptr) {
+            buffer->release();
+        }
+        if (mRunning) {
+            mCodec->queueEOS(index);
+        }
+        requestStop();
     }
     return mRunning;
 }
@@ -265,8 +283,12 @@ status_t AsyncCodecSource::stop() {
         return -EINVAL;
     }
 
-    // wait for any pending reads to complete
+    // Stop the source reader before stopping the codec. The source may be
+    // blocked in acquireBuffer(), and MediaSource requires all blocking reads
+    // to have returned before stop() completes.
     mState = STOPPING;
+    mSourceReader->requestStop();
+    mSource->stop();
     me->mAvailable.signal();
     while (me->mReading) {
         me.waitForCondition(me->mReadCondition);
@@ -276,7 +298,14 @@ status_t AsyncCodecSource::stop() {
     if (res1 != OK) {
         mCodec->release();
     }
-    status_t res2 = mSource->stop();
+    mSourceReader->requestExitAndWait();
+    while (!me->mBufferQueue.empty()) {
+        DroidMediaBuffer *buffer = *me->mBufferQueue.begin();
+        me->mBufferQueue.erase(me->mBufferQueue.begin());
+        buffer->release();
+    }
+    mSource->stop();
+    status_t res2 = OK;
     if (res1 == OK && res2 == OK) {
         mState = STOPPED;
     } else {
@@ -304,6 +333,7 @@ status_t AsyncCodecSource::read(
     status_t res = OK;
 
     if (mState != STARTED) {
+        me->mReading = false;
         return ERROR_END_OF_STREAM;
     }
 
@@ -386,7 +416,18 @@ bool AsyncCodecSource::queueInputBuffer(DroidMediaBuffer *buffer, size_t index)
     if (res != OK) {
         ALOGE("[%s] failed to queue input buffer #%zu", mComponentName.c_str(), index);
         mState = ERROR;
+        return false;
     }
+
+#if ANDROID_MAJOR >= 9
+    int32_t metadataInput = 0;
+    if (buffer->meta_data().findInt32(SCREEN_CAPTURE_METADATA_KEY, &metadataInput) &&
+            metadataInput != 0) {
+        inbuf->meta()->setObject("mediaBufferHolder",
+                                 new MediaBufferHolder(buffer));
+    }
+#endif
+
     ALOGV("[%s] Queued input buffer #%zu.", mComponentName.c_str(), index);
     return true;
 }

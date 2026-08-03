@@ -50,11 +50,21 @@ void droid_media_screen_capture_init(int width, int height,
     consumer->setConsumerUsageBits(
         GraphicBuffer::USAGE_HW_TEXTURE |
         GraphicBuffer::USAGE_HW_VIDEO_ENCODER);
-    consumer->setMaxAcquiredBufferCount(8);
+    status_t err = consumer->setMaxAcquiredBufferCount(3);
+    if (err != NO_ERROR) {
+        ALOGE("failed to set max acquired buffer count: %d", err);
+        return;
+    }
+
+    DroidMediaBufferQueue *queue = new DroidMediaBufferQueue(producer);
+    if (queue == NULL || queue->producer() == NULL) {
+        ALOGE("failed to wrap screen capture producer");
+        delete queue;
+        return;
+    }
 
     ScreenCaptureService::setConsumer(consumer, width, height);
-
-    *out_queue = new DroidMediaBufferQueue(producer);
+    *out_queue = queue;
 
     ALOGI("screen capture init: %dx%d RGBA, consumer stored", width, height);
 }
@@ -86,13 +96,12 @@ DroidMediaBufferQueue *droid_media_screen_capture_consumer_new(void)
     }
 
     DroidMediaBufferQueue *queue = new DroidMediaBufferQueue(consumer);
-    if (!queue->connectListener()) {
-        ALOGE("Failed to connect consumer listener");
-        delete queue;
+    if (queue == NULL) {
+        ALOGE("Failed to allocate screen capture consumer wrapper");
         return NULL;
     }
 
-    ALOGI("screen capture consumer connected");
+    ALOGI("screen capture consumer wrapper created");
     return queue;
 }
 
@@ -120,6 +129,16 @@ int droid_media_screen_capture_get_dimensions(int *width, int *height)
     if (width)  *width  = w;
     if (height) *height = h;
     return 0;
+}
+
+void *droid_media_screen_capture_queue_producer(DroidMediaBufferQueue *queue)
+{
+    return queue ? queue->producer().get() : NULL;
+}
+
+void droid_media_screen_capture_queue_destroy(DroidMediaBufferQueue *queue)
+{
+    delete queue;
 }
 
 }; // extern "C"

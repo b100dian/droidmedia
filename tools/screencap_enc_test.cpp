@@ -25,8 +25,10 @@
  *   B) AndroidOpaque + meta_data=0 (copy RGBA into encoder input — fallback)
  *
  * On some Codec2/A14 stacks, path A is rejected even though the format
- * is listed as supported.  Path B works — the encoder does RGB→YUV
- * conversion internally (AndroidOpaque semantics).
+ * is listed as supported. Path B is the v1 target — the encoder does RGB→YUV
+ * conversion internally (AndroidOpaque semantics). MediaBuffer ownership
+ * follows AsyncCodecSource: the source buffer is copied synchronously and
+ * released by the reader after queueing.
  *
  * Uses the same droid_media_codec_create_encoder_raw + MediaSource
  * poll pattern as DroidMediaRecorder (droidmediarecorder.cpp).
@@ -350,22 +352,26 @@ int main(int argc, char **argv) {
         }
     }
 
-    // 8. Stop and cleanup
+    // 8. Stop and cleanup. AsyncCodecSource drains any pending output
+    // buffers during stop; explicitly release the codec and looper before
+    // leaving main so no MediaBuffer survives process teardown.
     codec->stop();
+    codec.clear();
+    looper->stop();
     if (outFd >= 0) close(outFd);
     fprintf(stderr, "[6/7] encoder stopped\n");
 
     // 9. Report
     struct stat st;
-    if (stat(out, &st) == 0 && st.st_size > 0) {
-        fprintf(stderr, "=== PHASE-0 PASSED (%s mode) ===\n",
+    if (framesOut == N && stat(out, &st) == 0 && st.st_size > 0) {
+        fprintf(stderr, "=== ENCODER HARNESS PASSED (%s mode) ===\n",
                 metadataMode ? "zero-copy" : "RGBA-copy");
         fprintf(stderr, "    Output: %s (%ld bytes, %d frames)\n",
                 out, st.st_size, framesOut);
         return 0;
     } else {
-        fprintf(stderr, "=== PHASE-0 FAILED: no output (%d frames polled) ===\n",
-                framesOut);
+        fprintf(stderr, "=== ENCODER HARNESS FAILED: output incomplete (%d/%d frames polled) ===\n",
+                        framesOut, N);
         return 1;
     }
 }

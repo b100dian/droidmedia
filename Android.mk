@@ -454,7 +454,7 @@ endif
 include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
-LOCAL_SRC_FILES := libminisf.cpp allocator.cpp
+LOCAL_SRC_FILES := libminisf.cpp minisf_screen_capture.cpp allocator.cpp
 LOCAL_SHARED_LIBRARIES := libdroidmedia \
                           libutils \
                           libbinder \

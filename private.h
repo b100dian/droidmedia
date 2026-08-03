@@ -115,6 +115,8 @@ private:
   DroidMediaBufferSlot m_slots[android::BufferQueue::NUM_BUFFER_SLOTS];
 
   android::sp<DroidMediaBufferQueueListener> m_listener;
+  bool m_listenerConnected;
+  bool m_directConsumer;
   android::Mutex m_lock;
 
   DroidMediaBufferQueueCallbacks m_cb;

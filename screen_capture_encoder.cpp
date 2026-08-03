@@ -50,6 +50,7 @@ struct _ScreenCaptureEncoder {
     void *mCbUser;
 
     bool mRunning;
+    bool mCodecStarted;
     pthread_t mThread;
 };
 
@@ -135,6 +136,7 @@ extern "C" {
 ScreenCaptureEncoder *
 screen_capture_encoder_new(void *queuePtr, int width, int height,
                            int colorFormat, int bitrate, int fps,
+                           bool metadataMode,
                            const ScreenCaptureEncoderCallbacks *callbacks,
                            void *cbUser)
 {
@@ -175,20 +177,29 @@ screen_capture_encoder_new(void *queuePtr, int width, int height,
     md.bitrate       = bitrate;
     md.stride        = width;
     md.slice_height  = height;
-    md.meta_data     = 1; // metadata-input mode
+    md.max_input_size = width * height * 4;
 
     // Build looper (must happen before any early-exit cleanup)
     sp<ALooper> looper = new ALooper;
     looper->setName("ScreenCapEncLooper");
     looper->start();
 
-    // Build media source
+    // Build media source and request the selected input mode. Metadata input
+    // is retained for compatible devices, but copy mode is the target default.
+    md.meta_data = metadataMode ? 1 : 0;
     sp<ScreenCaptureMediaSource> src = new ScreenCaptureMediaSource(
-        consumer, width, height, colorFormat);
-
-    // Create raw encoder — returns sp<MediaSource>
+        consumer, width, height, colorFormat, metadataMode);
     sp<MediaSource> codec = droid_media_codec_create_encoder_raw(
         &md, looper, src);
+
+    if (codec == NULL && metadataMode) {
+        ALOGW("metadata input rejected; retrying with RGBA copy mode");
+        md.meta_data = 0;
+        src = new ScreenCaptureMediaSource(
+            consumer, width, height, colorFormat, false);
+        codec = droid_media_codec_create_encoder_raw(&md, looper, src);
+    }
+
     if (codec == NULL) {
         ALOGE("droid_media_codec_create_encoder_raw failed");
         looper->stop();
@@ -200,6 +211,7 @@ screen_capture_encoder_new(void *queuePtr, int width, int height,
     enc->mCodec   = codec;
     enc->mLooper  = looper;
     enc->mRunning = false;
+    enc->mCodecStarted = false;
     memset(&enc->mCb, 0, sizeof(enc->mCb));
     enc->mCbUser = NULL;
     memset(&enc->mThread, 0, sizeof(enc->mThread));
@@ -209,8 +221,9 @@ screen_capture_encoder_new(void *queuePtr, int width, int height,
     }
     enc->mCbUser = cbUser;
 
-    ALOGI("encoder pipeline created: %dx%d @%d fps, %d bps, cf=0x%x",
-          width, height, fps, bitrate, colorFormat);
+    ALOGI("encoder pipeline created: %dx%d @%d fps, %d bps, cf=0x%x, mode=%s",
+          width, height, fps, bitrate, colorFormat,
+          md.meta_data ? "metadata" : "copy");
 
     return enc;
 }
@@ -238,6 +251,7 @@ bool screen_capture_encoder_start(ScreenCaptureEncoder *enc)
         return false;
     }
 
+    enc->mCodecStarted = true;
     enc->mRunning = true;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
@@ -257,14 +271,17 @@ bool screen_capture_encoder_start(ScreenCaptureEncoder *enc)
 
 void screen_capture_encoder_stop(ScreenCaptureEncoder *enc)
 {
-    if (!enc || !enc->mRunning) return;
+    if (!enc || !enc->mCodecStarted) return;
 
-    enc->mRunning = false;
-    void *dummy;
-    pthread_join(enc->mThread, &dummy);
+    if (enc->mRunning) {
+        enc->mRunning = false;
+        void *dummy;
+        pthread_join(enc->mThread, &dummy);
+    }
 
     status_t err = enc->mCodec->stop();
-    if (err != OK) {
+    enc->mCodecStarted = false;
+    if (err != OK && err != -EINVAL) {
         ALOGE("codec stop error: %d", err);
     }
 

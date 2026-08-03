@@ -64,6 +64,8 @@ void DroidMediaBufferQueueListener::onBuffersReleased()
 
 _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
   m_listener(new DroidMediaBufferQueueListener(this)),
+  m_listenerConnected(false),
+  m_directConsumer(false),
   m_data(0) {
 
   memset(&m_cb, 0x0, sizeof(m_cb));
@@ -105,6 +107,8 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
 _DroidMediaBufferQueue::_DroidMediaBufferQueue(android::sp<android::IGraphicBufferProducer> producer) :
   m_producer(producer),
   m_listener(NULL),  /* no listener needed on the producer side */
+  m_listenerConnected(false),
+  m_directConsumer(false),
   m_data(0)
 {
   memset(&m_cb, 0x0, sizeof(m_cb));
@@ -118,6 +122,8 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(android::sp<android::IGraphicBuff
 _DroidMediaBufferQueue::_DroidMediaBufferQueue(android::sp<android::IGraphicBufferConsumer> consumer) :
   m_queue(consumer),
   m_listener(new DroidMediaBufferQueueListener(this)),
+  m_listenerConnected(false),
+  m_directConsumer(true),
   m_data(0)
 {
   memset(&m_cb, 0x0, sizeof(m_cb));
@@ -147,13 +153,15 @@ bool _DroidMediaBufferQueue::connectListener()
     return false;
   }
 
+  m_listenerConnected = true;
   return true;
 }
 
 void _DroidMediaBufferQueue::disconnectListener()
 {
-  if (m_queue != NULL) {
+  if (m_queue != NULL && m_listenerConnected) {
     m_queue->consumerDisconnect();
+    m_listenerConnected = false;
   }
 }
 
@@ -285,6 +293,13 @@ void _DroidMediaBufferQueue::buffersReleased() {
 int _DroidMediaBufferQueue::releaseMediaBuffer(int index, EGLDisplay dpy, EGLSyncKHR fence) {
     if (m_queue == NULL) {
       // producer-side wrapper — no consumer to release to
+      return android::INVALID_OPERATION;
+    }
+
+    if (m_directConsumer && !m_data) {
+      // ScreenCaptureMediaSource acquires/releases directly and owns the
+      // authoritative frame number. The legacy slot array is not populated
+      // for this consumer-side wrapper.
       return android::INVALID_OPERATION;
     }
 

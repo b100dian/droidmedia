@@ -93,6 +93,7 @@ private:
     public:
         explicit SourceReader(AsyncCodecSource *codec, const sp<MediaSource> source);
         void inputBufferAvailable(size_t index);
+        void requestStop();
 
     private:
         ~SourceReader();
