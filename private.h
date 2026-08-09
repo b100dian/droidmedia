@@ -67,9 +67,8 @@ struct _DroidMediaBufferQueue : public android::RefBase {
 public:
   _DroidMediaBufferQueue(const char *name);
 
-  /* NEW — Component B: wrap an externally-created producer (HWC plugin side).
-   * The producer is already configured; we just hold a reference and expose
-   * it via window() / accessor so the HWC plugin can call dequeue/queue.*/
+  /* Diagnostic raw-capture producer wrapper. This type remains entirely
+   * inside droidmedia and is never exposed through the QPA/libminisf ABI. */
   explicit _DroidMediaBufferQueue(android::sp<android::IGraphicBufferProducer> producer);
 
   /* NEW — Component B: wrap an externally-fetched consumer (GStreamer side).
@@ -92,9 +91,7 @@ public:
 
   void buffersReleased();
 
-  /* NEW — accessors for screen capture:
-   *   producer() — returns the IGraphicBufferProducer (HWC side)
-   *   consumer() — returns the IGraphicBufferConsumer (GStreamer side) */
+  /* Accessors used only by the diagnostic raw-capture path. */
   android::sp<android::IGraphicBufferProducer> producer() const { return m_producer; }
   android::sp<android::IGraphicBufferConsumer> consumer() const { return m_queue; }
 

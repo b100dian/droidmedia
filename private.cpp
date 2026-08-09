@@ -100,13 +100,12 @@ _DroidMediaBufferQueue::_DroidMediaBufferQueue(const char *name) :
 #endif
 }
 
-/* Component B — producer-side wrapper (HWC plugin process).
- * The caller (droid_media_screen_capture_init) already configured the
- * consumer (format/usage/size) before storing it. We just hold the
- * producer reference. */
+
+
+/* Diagnostic raw-capture producer wrapper. */
 _DroidMediaBufferQueue::_DroidMediaBufferQueue(android::sp<android::IGraphicBufferProducer> producer) :
   m_producer(producer),
-  m_listener(NULL),  /* no listener needed on the producer side */
+  m_listener(NULL),
   m_listenerConnected(false),
   m_directConsumer(false),
   m_data(0)
@@ -166,7 +165,7 @@ void _DroidMediaBufferQueue::disconnectListener()
 }
 
 void _DroidMediaBufferQueue::attachToCameraPreview(android::sp<android::Camera>& camera) {
-  if (m_producer == NULL && m_queue == NULL) return;  // consumer-side wrapper, nothing to attach
+  if (m_producer == NULL && m_queue == NULL) return;
 #if ANDROID_MAJOR == 4 && ANDROID_MINOR < 4
     camera->setPreviewTexture(m_queue);
 #elif ANDROID_MAJOR < 5
@@ -185,7 +184,7 @@ void _DroidMediaBufferQueue::attachToCameraVideo(android::sp<android::Camera>& c
 
 ANativeWindow *_DroidMediaBufferQueue::window() {
   if (m_producer == NULL) {
-    // consumer-side wrapper or producer not set — no ANativeWindow
+    // consumer-side wrapper — no ANativeWindow
     return NULL;
   }
 #if ANDROID_MAJOR == 4 && ANDROID_MINOR < 4

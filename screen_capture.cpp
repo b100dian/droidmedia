@@ -131,6 +131,8 @@ int droid_media_screen_capture_get_dimensions(int *width, int *height)
     return 0;
 }
 
+
+
 void *droid_media_screen_capture_queue_producer(DroidMediaBufferQueue *queue)
 {
     return queue ? queue->producer().get() : NULL;

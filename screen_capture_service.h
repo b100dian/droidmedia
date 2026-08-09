@@ -21,6 +21,7 @@
 #include <binder/IInterface.h>
 #include <binder/Parcel.h>
 #include <gui/IGraphicBufferConsumer.h>
+#include <gui/IGraphicBufferProducer.h>
 #include <utils/Mutex.h>
 
 namespace android {
@@ -42,6 +43,11 @@ public:
     virtual sp<IGraphicBufferConsumer> getConsumer() = 0;
     virtual int getWidth() = 0;
     virtual int getHeight() = 0;
+    virtual sp<IGraphicBufferProducer> getProducer(int *width, int *height,
+                                                    int64_t *generation) = 0;
+    virtual int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
+                                     int width, int height) = 0;
+    virtual void unregisterProducer(int64_t generation) = 0;
 };
 
 class BnScreenCaptureService : public BnInterface<IScreenCaptureService>
@@ -60,15 +66,20 @@ public:
     sp<IGraphicBufferConsumer> getConsumer() override;
     int getWidth() override;
     int getHeight() override;
+    sp<IGraphicBufferProducer> getProducer(int *width, int *height,
+                                            int64_t *generation) override;
+    int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
+                             int width, int height) override;
+    void unregisterProducer(int64_t generation) override;
 };
 
 /*
  * ScreenCaptureService — the actual Binder service instantiated in the
  * HWC plugin process.
  *
- * It stores a single IGraphicBufferConsumer shared across processes,
- * along with the capture dimensions (since IGraphicBufferConsumer
- * doesn't expose getDefaultWidth/getDefaultHeight across Binder).
+ * It stores the legacy raw-capture consumer and, independently, one
+ * MediaCodec input-Surface producer shared across processes. A generation
+ * invalidates stale QPA targets when the recorder stops or restarts.
  */
 class ScreenCaptureService
     : public BinderService<ScreenCaptureService>,
@@ -83,6 +94,47 @@ public:
         sConsumer = c;
         sWidth = width;
         sHeight = height;
+    }
+
+    static int64_t setProducer(const sp<IGraphicBufferProducer>& producer,
+                               int width, int height) {
+        if (producer == NULL || width <= 0 || height <= 0) return 0;
+
+        Mutex::Autolock l(sLock);
+        sProducer = producer;
+        sProducerWidth = width;
+        sProducerHeight = height;
+        ++sProducerGeneration;
+        if (sProducerGeneration == 0) ++sProducerGeneration;
+        return sProducerGeneration;
+    }
+
+    static void clearProducer(int64_t generation) {
+        Mutex::Autolock l(sLock);
+        if (generation != 0 && generation == sProducerGeneration) {
+            sProducer.clear();
+            sProducerWidth = 0;
+            sProducerHeight = 0;
+            ++sProducerGeneration;
+            if (sProducerGeneration == 0) ++sProducerGeneration;
+        }
+    }
+
+    static bool getProducerState(sp<IGraphicBufferProducer> *producer,
+                                 int *width, int *height, int64_t *generation) {
+        Mutex::Autolock l(sLock);
+        if (sProducer == NULL || sProducerGeneration == 0) return false;
+        if (producer) *producer = sProducer;
+        if (width) *width = sProducerWidth;
+        if (height) *height = sProducerHeight;
+        if (generation) *generation = sProducerGeneration;
+        return true;
+    }
+
+    static bool isProducerGenerationCurrent(int64_t generation) {
+        Mutex::Autolock l(sLock);
+        return generation != 0 && generation == sProducerGeneration &&
+               sProducer != NULL;
     }
 
     sp<IGraphicBufferConsumer> getConsumer() override {
@@ -100,10 +152,32 @@ public:
         return sHeight;
     }
 
+    sp<IGraphicBufferProducer> getProducer(int *width, int *height,
+                                            int64_t *generation) override {
+        sp<IGraphicBufferProducer> producer;
+        if (!getProducerState(&producer, width, height, generation)) {
+            return NULL;
+        }
+        return producer;
+    }
+
+    int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
+                             int width, int height) override {
+        return setProducer(producer, width, height);
+    }
+
+    void unregisterProducer(int64_t generation) override {
+        clearProducer(generation);
+    }
+
 private:
     static sp<IGraphicBufferConsumer> sConsumer;
     static int sWidth;
     static int sHeight;
+    static sp<IGraphicBufferProducer> sProducer;
+    static int sProducerWidth;
+    static int sProducerHeight;
+    static int64_t sProducerGeneration;
     static Mutex sLock;
 };
 

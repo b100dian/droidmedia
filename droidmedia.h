@@ -123,7 +123,8 @@ void droid_media_buffer_queue_set_callbacks(DroidMediaBufferQueue *queue,
 					    DroidMediaBufferQueueCallbacks *cb, void *data);
 int droid_media_buffer_queue_length();
 
-/* screen_capture.cpp */
+/* screen_capture.cpp — diagnostic raw-capture API. These functions are
+ * not used by the QPA Surface-input path. */
 void droid_media_screen_capture_init(int width, int height,
     DroidMediaBufferQueue **out_queue);
 void *droid_media_screen_capture_queue_producer(DroidMediaBufferQueue *queue);
