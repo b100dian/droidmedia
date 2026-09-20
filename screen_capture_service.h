@@ -44,9 +44,10 @@ public:
     virtual int getWidth() = 0;
     virtual int getHeight() = 0;
     virtual sp<IGraphicBufferProducer> getProducer(int *width, int *height,
+                                                    int *fps,
                                                     int64_t *generation) = 0;
     virtual int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
-                                     int width, int height) = 0;
+                                     int width, int height, int fps) = 0;
     virtual void unregisterProducer(int64_t generation) = 0;
 };
 
@@ -66,10 +67,10 @@ public:
     sp<IGraphicBufferConsumer> getConsumer() override;
     int getWidth() override;
     int getHeight() override;
-    sp<IGraphicBufferProducer> getProducer(int *width, int *height,
+    sp<IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
                                             int64_t *generation) override;
     int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
-                             int width, int height) override;
+                             int width, int height, int fps) override;
     void unregisterProducer(int64_t generation) override;
 };
 
@@ -97,13 +98,14 @@ public:
     }
 
     static int64_t setProducer(const sp<IGraphicBufferProducer>& producer,
-                               int width, int height) {
-        if (producer == NULL || width <= 0 || height <= 0) return 0;
+                               int width, int height, int fps) {
+        if (producer == NULL || width <= 0 || height <= 0 || fps <= 0) return 0;
 
         Mutex::Autolock l(sLock);
         sProducer = producer;
         sProducerWidth = width;
         sProducerHeight = height;
+        sProducerFps = fps;
         ++sProducerGeneration;
         if (sProducerGeneration == 0) ++sProducerGeneration;
         return sProducerGeneration;
@@ -115,18 +117,21 @@ public:
             sProducer.clear();
             sProducerWidth = 0;
             sProducerHeight = 0;
+            sProducerFps = 0;
             ++sProducerGeneration;
             if (sProducerGeneration == 0) ++sProducerGeneration;
         }
     }
 
     static bool getProducerState(sp<IGraphicBufferProducer> *producer,
-                                 int *width, int *height, int64_t *generation) {
+                                 int *width, int *height, int *fps,
+                                 int64_t *generation) {
         Mutex::Autolock l(sLock);
         if (sProducer == NULL || sProducerGeneration == 0) return false;
         if (producer) *producer = sProducer;
         if (width) *width = sProducerWidth;
         if (height) *height = sProducerHeight;
+        if (fps) *fps = sProducerFps;
         if (generation) *generation = sProducerGeneration;
         return true;
     }
@@ -152,18 +157,18 @@ public:
         return sHeight;
     }
 
-    sp<IGraphicBufferProducer> getProducer(int *width, int *height,
+    sp<IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
                                             int64_t *generation) override {
         sp<IGraphicBufferProducer> producer;
-        if (!getProducerState(&producer, width, height, generation)) {
+        if (!getProducerState(&producer, width, height, fps, generation)) {
             return NULL;
         }
         return producer;
     }
 
     int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
-                             int width, int height) override {
-        return setProducer(producer, width, height);
+                             int width, int height, int fps) override {
+        return setProducer(producer, width, height, fps);
     }
 
     void unregisterProducer(int64_t generation) override {
@@ -177,6 +182,7 @@ private:
     static sp<IGraphicBufferProducer> sProducer;
     static int sProducerWidth;
     static int sProducerHeight;
+    static int sProducerFps;
     static int64_t sProducerGeneration;
     static Mutex sLock;
 };

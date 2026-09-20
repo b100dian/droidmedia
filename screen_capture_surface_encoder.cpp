@@ -31,6 +31,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <string.h>
+#include <time.h>
 
 #undef LOG_TAG
 #define LOG_TAG "ScreenCaptureSurfaceEnc"
@@ -254,7 +255,7 @@ bool screen_capture_surface_encoder_start(ScreenCaptureSurfaceEncoder *encoder)
           producerBinder != NULL ? producerBinder->localBinder() : NULL,
           producerBinder != NULL ? producerBinder->remoteBinder() : NULL);
     encoder->mGeneration = encoder->mService->registerProducer(
-        encoder->mProducer, encoder->mWidth, encoder->mHeight);
+        encoder->mProducer, encoder->mWidth, encoder->mHeight, encoder->mFps);
     if (encoder->mGeneration == 0) {
         /* Prevent a running, unpublished input Surface from surviving a
          * failed start. The drain thread is stopped before the codec. */
@@ -281,8 +282,18 @@ void screen_capture_surface_encoder_stop(ScreenCaptureSurfaceEncoder *encoder)
     /* Invalidate the published generation before stopping the codec. QPA can
      * then detach instead of attempting a swap against a stopped consumer. */
     if (encoder->mGeneration != 0 && encoder->mService != NULL) {
+        ALOGI("unregistering Surface encoder generation=%" PRId64,
+              encoder->mGeneration);
         encoder->mService->unregisterProducer(encoder->mGeneration);
         encoder->mGeneration = 0;
+
+        /* QPA polls session state every 250 ms. Keep the codec and output drain
+         * alive for a bounded interval so an active display can detach before
+         * the input consumer is stopped. If QPA is idle there is no producer
+         * swap to race; if a swap is already blocked, stop below still forces
+         * the BufferQueue operation to return. */
+        struct timespec grace = {0, 500000000L};
+        while (nanosleep(&grace, &grace) != 0 && errno == EINTR) {}
     }
 
     /* stop() wakes dequeueOutputBuffer before joining the reader thread. */

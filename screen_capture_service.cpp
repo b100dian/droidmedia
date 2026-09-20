@@ -36,6 +36,7 @@ int ScreenCaptureService::sHeight = 0;
 sp<IGraphicBufferProducer> ScreenCaptureService::sProducer;
 int ScreenCaptureService::sProducerWidth = 0;
 int ScreenCaptureService::sProducerHeight = 0;
+int ScreenCaptureService::sProducerFps = 0;
 int64_t ScreenCaptureService::sProducerGeneration = 0;
 Mutex ScreenCaptureService::sLock;
 
@@ -67,13 +68,15 @@ status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
         CHECK_INTERFACE(IScreenCaptureService, data, reply);
         int width = 0;
         int height = 0;
+        int fps = 0;
         int64_t generation = 0;
         sp<IGraphicBufferProducer> producer = getProducer(
-            &width, &height, &generation);
+            &width, &height, &fps, &generation);
         reply->writeNoException();
         reply->writeStrongBinder(IInterface::asBinder(producer));
         reply->writeInt32(width);
         reply->writeInt32(height);
+        reply->writeInt32(fps);
         reply->writeInt64(generation);
         return NO_ERROR;
     }
@@ -86,7 +89,8 @@ status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
         }
         const int width = data.readInt32();
         const int height = data.readInt32();
-        const int64_t generation = registerProducer(producer, width, height);
+        const int fps = data.readInt32();
+        const int64_t generation = registerProducer(producer, width, height, fps);
         reply->writeNoException();
         reply->writeInt64(generation);
         return NO_ERROR;
@@ -161,7 +165,7 @@ int BpScreenCaptureService::getHeight()
 }
 
 sp<IGraphicBufferProducer> BpScreenCaptureService::getProducer(
-    int *width, int *height, int64_t *generation)
+    int *width, int *height, int *fps, int64_t *generation)
 {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
@@ -178,21 +182,24 @@ sp<IGraphicBufferProducer> BpScreenCaptureService::getProducer(
     sp<IBinder> binder = reply.readStrongBinder();
     int outWidth = reply.readInt32();
     int outHeight = reply.readInt32();
+    int outFps = reply.readInt32();
     int64_t outGeneration = reply.readInt64();
     if (width) *width = outWidth;
     if (height) *height = outHeight;
+    if (fps) *fps = outFps;
     if (generation) *generation = outGeneration;
     return binder != NULL ? interface_cast<IGraphicBufferProducer>(binder) : NULL;
 }
 
 int64_t BpScreenCaptureService::registerProducer(
-    const sp<IGraphicBufferProducer>& producer, int width, int height)
+    const sp<IGraphicBufferProducer>& producer, int width, int height, int fps)
 {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
     data.writeStrongBinder(IInterface::asBinder(producer));
     data.writeInt32(width);
     data.writeInt32(height);
+    data.writeInt32(fps);
 
     status_t err = remote()->transact(REGISTER_PRODUCER, data, &reply);
     if (err != NO_ERROR) {

@@ -25,6 +25,10 @@ namespace {
 struct TestState {
     int outputFd;
     int frames;
+    size_t bytes;
+    int64_t lastTimestampUs;
+    bool haveTimestamp;
+    bool debug;
     bool error;
 };
 
@@ -38,7 +42,21 @@ static void onData(void *opaque, const ScreenCaptureSurfaceEncodedFrame *frame)
         state->error = true;
         return;
     }
+    state->bytes += frame->size;
+    if (state->debug) {
+        fprintf(stderr, "output: size=%zu pts=%" PRId64 "us flags=0x%x\n",
+                frame->size, frame->timestamp_us, frame->flags);
+    }
     if (!(frame->flags & android::MediaCodec::BUFFER_FLAG_CODECCONFIG)) {
+        if (state->haveTimestamp &&
+            frame->timestamp_us < state->lastTimestampUs) {
+            fprintf(stderr, "non-monotonic output PTS: %" PRId64
+                    " after %" PRId64 "\n", frame->timestamp_us,
+                    state->lastTimestampUs);
+            state->error = true;
+        }
+        state->lastTimestampUs = frame->timestamp_us;
+        state->haveTimestamp = true;
         ++state->frames;
     }
 }
@@ -83,7 +101,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    TestState state = {fd, 0, false};
+    TestState state = {};
+    state.outputFd = fd;
+    state.debug = getenv("SCREENCAP_SURFACE_DEBUG") != NULL;
     ScreenCaptureSurfaceEncoderCallbacks callbacks = {};
     callbacks.data_available = onData;
     callbacks.format_changed = onFormat;
@@ -112,7 +132,7 @@ int main(int argc, char **argv)
     screen_capture_surface_encoder_destroy(encoder);
     close(fd);
 
-    fprintf(stderr, "Gate-2 recorder stopped: frames=%d error=%d output=%s\n",
-            state.frames, state.error ? 1 : 0, path);
+    fprintf(stderr, "Gate-2 recorder stopped: frames=%d bytes=%zu error=%d output=%s\n",
+            state.frames, state.bytes, state.error ? 1 : 0, path);
     return state.error || state.frames == 0 ? 1 : 0;
 }

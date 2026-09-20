@@ -270,18 +270,20 @@ static sp<IScreenCaptureService> screenCaptureService()
 
 static bool acquireRemoteSurface(const sp<IScreenCaptureService> &service,
                                  int expectedWidth, int expectedHeight,
-                                 int waitSeconds, sp<Surface> *surface,
-                                 int64_t *generation)
+                                 int expectedFps, int waitSeconds,
+                                 sp<Surface> *surface, int64_t *generation)
 {
     const int64_t deadlineNs = monotonicNs() + waitSeconds * 1000000000LL;
     while (monotonicNs() < deadlineNs) {
         int width = 0;
         int height = 0;
+        int fps = 0;
         int64_t currentGeneration = 0;
         sp<IGraphicBufferProducer> producer = service->getProducer(
-            &width, &height, &currentGeneration);
+            &width, &height, &fps, &currentGeneration);
         if (producer != NULL && currentGeneration != 0 &&
-            width == expectedWidth && height == expectedHeight) {
+            width == expectedWidth && height == expectedHeight &&
+            fps == expectedFps) {
             *surface = new Surface(producer, true);
             if (*surface == NULL) {
                 fprintf(stderr, "android::Surface construction failed\n");
@@ -294,8 +296,9 @@ static bool acquireRemoteSurface(const sp<IScreenCaptureService> &service,
             return true;
         }
         if (producer != NULL) {
-            fprintf(stderr, "active producer dimensions are %dx%d, expected %dx%d\n",
-                    width, height, expectedWidth, expectedHeight);
+            fprintf(stderr, "active producer is %dx%d @%d fps, expected "
+                    "%dx%d @%d fps\n", width, height, fps, expectedWidth,
+                    expectedHeight, expectedFps);
             return false;
         }
         sleepUntilNs(monotonicNs() + 100000000LL);
@@ -337,7 +340,7 @@ int main(int argc, char **argv)
 
     sp<Surface> inputSurface;
     int64_t generation = 0;
-    if (!acquireRemoteSurface(service, width, height, waitSeconds,
+    if (!acquireRemoteSurface(service, width, height, fps, waitSeconds,
                               &inputSurface, &generation)) {
         return 1;
     }
@@ -409,11 +412,12 @@ int main(int argc, char **argv)
     if (success) {
         int activeWidth = 0;
         int activeHeight = 0;
+        int activeFps = 0;
         int64_t activeGeneration = 0;
         sp<IGraphicBufferProducer> activeProducer = service->getProducer(
-            &activeWidth, &activeHeight, &activeGeneration);
+            &activeWidth, &activeHeight, &activeFps, &activeGeneration);
         if (activeProducer == NULL || activeGeneration != generation ||
-            activeWidth != width || activeHeight != height) {
+            activeWidth != width || activeHeight != height || activeFps != fps) {
             fprintf(stderr, "recorder target generation changed before completion\n");
             success = false;
         }
