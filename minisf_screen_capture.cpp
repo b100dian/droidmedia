@@ -68,6 +68,13 @@ void *minisf_screen_capture_target_acquire(int width, int height,
         return NULL;
     }
 
+    sp<IBinder> producerBinder = IInterface::asBinder(producer);
+    ALOGI("received encoder producer Binder=%p local=%p remote=%p generation=%" PRId64,
+          producerBinder.get(),
+          producerBinder != NULL ? producerBinder->localBinder() : NULL,
+          producerBinder != NULL ? producerBinder->remoteBinder() : NULL,
+          producerGeneration);
+
     sp<Surface> surface = new Surface(producer, true);
     if (surface == NULL) return NULL;
 

@@ -102,9 +102,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    fprintf(stderr, "producer registered; start QPA with:\n");
-    fprintf(stderr, "  QPA_HWC_SCREENCAP=1 QPA_HWC_SCREENCAP_TEST_BARS=1\n");
-    fprintf(stderr, "waiting %d seconds for QPA frames...\n", duration);
+    fprintf(stderr, "producer registered; encoder and output drain are ready\n");
+    fprintf(stderr, "for Gate 2.1/2.1a, keep QPA capture disabled and start the "
+            "standalone EGL producer\n");
+    fprintf(stderr, "waiting %d seconds for encoder-Surface frames...\n", duration);
     sleep(static_cast<unsigned int>(duration));
 
     screen_capture_surface_encoder_stop(encoder);

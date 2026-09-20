@@ -8,6 +8,7 @@
 #include "screen_capture_service.h"
 
 #include <binder/IServiceManager.h>
+#include <binder/ProcessState.h>
 #include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
 #include <media/MediaCodecBuffer.h>
@@ -182,9 +183,18 @@ ScreenCaptureSurfaceEncoder *screen_capture_surface_encoder_new(
 
     status_t err = encoder->mCodec->configure(
         format, NULL, NULL, MediaCodec::CONFIGURE_FLAG_ENCODE);
-    if (err != OK || encoder->mCodec->createInputSurface(&encoder->mProducer) != OK ||
-        encoder->mProducer == NULL) {
-        ALOGE("Surface encoder configure/createInputSurface failed: %d", err);
+    if (err != OK) {
+        ALOGE("Surface encoder configure failed: %d", err);
+        encoder->mCodec->release();
+        encoder->mCodec.clear();
+        encoder->mLooper->stop();
+        delete encoder;
+        return NULL;
+    }
+
+    err = encoder->mCodec->createInputSurface(&encoder->mProducer);
+    if (err != OK || encoder->mProducer == NULL) {
+        ALOGE("Surface encoder createInputSurface failed: %d", err);
         encoder->mCodec->release();
         encoder->mCodec.clear();
         encoder->mLooper->stop();
@@ -199,6 +209,13 @@ bool screen_capture_surface_encoder_start(ScreenCaptureSurfaceEncoder *encoder)
 {
     if (encoder == NULL || encoder->mStarted) return false;
 
+    /* Codec2 commonly returns an HIDL-to-Binder IGraphicBufferProducer adapter
+     * hosted by this recorder process. Once it is published through
+     * sailfish.screencap, the QPA producer connects to that local Binder
+     * endpoint from another process. Start an inbound Binder pool before
+     * registration; the same-process Gate-1 harness already does this. */
+    ProcessState::self()->startThreadPool();
+
     sp<IServiceManager> serviceManager = defaultServiceManager();
     if (serviceManager == NULL) return false;
     sp<IBinder> binder = serviceManager->getService(
@@ -210,38 +227,48 @@ bool screen_capture_surface_encoder_start(ScreenCaptureSurfaceEncoder *encoder)
     encoder->mService = interface_cast<IScreenCaptureService>(binder);
     if (encoder->mService == NULL) return false;
 
-    encoder->mGeneration = encoder->mService->registerProducer(
-        encoder->mProducer, encoder->mWidth, encoder->mHeight);
-    if (encoder->mGeneration == 0) {
-        encoder->mService.clear();
-        return false;
-    }
-
+    /* The producer must never be visible to QPA before MediaCodec is running:
+     * EGL may connect and queue to it immediately after registration. */
     status_t err = encoder->mCodec->start();
     if (err != OK) {
-        encoder->mService->unregisterProducer(encoder->mGeneration);
-        encoder->mGeneration = 0;
         encoder->mService.clear();
         ALOGE("Surface encoder start failed: %d", err);
         return false;
     }
 
     encoder->mRunning = true;
-    encoder->mStarted = true;
     int ret = pthread_create(&encoder->mThread, NULL, surfaceEncoderThread,
                              encoder);
     if (ret != 0) {
         encoder->mRunning = false;
-        encoder->mStarted = false;
         encoder->mCodec->stop();
-        encoder->mService->unregisterProducer(encoder->mGeneration);
-        encoder->mGeneration = 0;
         encoder->mService.clear();
         ALOGE("Surface encoder output thread creation failed: %d", ret);
         return false;
     }
     encoder->mThreadCreated = true;
-    ALOGI("Surface encoder started: %dx%d @%d fps generation=%" PRId64,
+
+    sp<IBinder> producerBinder = IInterface::asBinder(encoder->mProducer);
+    ALOGI("publishing input producer Binder=%p local=%p remote=%p",
+          producerBinder.get(),
+          producerBinder != NULL ? producerBinder->localBinder() : NULL,
+          producerBinder != NULL ? producerBinder->remoteBinder() : NULL);
+    encoder->mGeneration = encoder->mService->registerProducer(
+        encoder->mProducer, encoder->mWidth, encoder->mHeight);
+    if (encoder->mGeneration == 0) {
+        /* Prevent a running, unpublished input Surface from surviving a
+         * failed start. The drain thread is stopped before the codec. */
+        encoder->mRunning = false;
+        encoder->mCodec->stop();
+        pthread_join(encoder->mThread, NULL);
+        encoder->mThreadCreated = false;
+        encoder->mService.clear();
+        ALOGE("Surface encoder producer registration failed");
+        return false;
+    }
+
+    encoder->mStarted = true;
+    ALOGI("Surface encoder ready: %dx%d @%d fps generation=%" PRId64,
           encoder->mWidth, encoder->mHeight, encoder->mFps,
           encoder->mGeneration);
     return true;
@@ -251,6 +278,13 @@ void screen_capture_surface_encoder_stop(ScreenCaptureSurfaceEncoder *encoder)
 {
     if (encoder == NULL || !encoder->mStarted) return;
 
+    /* Invalidate the published generation before stopping the codec. QPA can
+     * then detach instead of attempting a swap against a stopped consumer. */
+    if (encoder->mGeneration != 0 && encoder->mService != NULL) {
+        encoder->mService->unregisterProducer(encoder->mGeneration);
+        encoder->mGeneration = 0;
+    }
+
     /* stop() wakes dequeueOutputBuffer before joining the reader thread. */
     encoder->mRunning = false;
     status_t err = encoder->mCodec->stop();
@@ -258,10 +292,6 @@ void screen_capture_surface_encoder_stop(ScreenCaptureSurfaceEncoder *encoder)
         void *result = NULL;
         pthread_join(encoder->mThread, &result);
         encoder->mThreadCreated = false;
-    }
-    if (encoder->mGeneration != 0) {
-        encoder->mService->unregisterProducer(encoder->mGeneration);
-        encoder->mGeneration = 0;
     }
     encoder->mService.clear();
     encoder->mStarted = false;
