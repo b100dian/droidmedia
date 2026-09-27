@@ -38,6 +38,22 @@
 
 using namespace android;
 
+/* Default bound for finish() when the caller passes a non-positive timeout. */
+static const int kDefaultFinishTimeoutMs = 2000;
+
+/* QPA polls session state every 250 ms. After unregistering, keep the codec
+ * and output drain alive for a bounded interval so an active display can
+ * detach before the input consumer is stopped or signalled EOS. */
+static const long kDetachGraceNs = 500000000L;
+
+enum EncoderState {
+    STATE_IDLE,      /* created, not started */
+    STATE_STARTED,   /* codec running, producer published */
+    STATE_FINISHING, /* finish() in progress: draining to codec EOS */
+    STATE_STOPPING,  /* stop() tearing down */
+    STATE_STOPPED    /* codec stopped; only destroy() remains */
+};
+
 struct _ScreenCaptureSurfaceEncoder {
     int mWidth;
     int mHeight;
@@ -53,7 +69,15 @@ struct _ScreenCaptureSurfaceEncoder {
     pthread_t mThread;
     bool mThreadCreated;
     volatile bool mRunning;
-    bool mStarted;
+
+    /* mLock protects the fields below. Callbacks are never invoked while
+     * mLock is held. */
+    pthread_mutex_t mLock;
+    pthread_cond_t mCond;
+    EncoderState mState;
+    bool mOutputEos;    /* drain thread delivered codec EOS */
+    bool mThreadExited; /* drain loop returned (EOS, error or stop) */
+    bool mStopRequested; /* stop() called while finish() was waiting */
 };
 
 static void reportError(ScreenCaptureSurfaceEncoder *encoder, int error)
@@ -63,10 +87,20 @@ static void reportError(ScreenCaptureSurfaceEncoder *encoder, int error)
     }
 }
 
+static void markThreadExited(ScreenCaptureSurfaceEncoder *encoder, bool eos)
+{
+    pthread_mutex_lock(&encoder->mLock);
+    if (eos) encoder->mOutputEos = true;
+    encoder->mThreadExited = true;
+    pthread_cond_broadcast(&encoder->mCond);
+    pthread_mutex_unlock(&encoder->mLock);
+}
+
 static void *surfaceEncoderThread(void *arg)
 {
     ScreenCaptureSurfaceEncoder *encoder =
         static_cast<ScreenCaptureSurfaceEncoder *>(arg);
+    bool sawEos = false;
 
     while (encoder->mRunning) {
         size_t index = 0;
@@ -93,15 +127,22 @@ static void *surfaceEncoderThread(void *arg)
                 frame.size = size;
                 frame.timestamp_us = timestampUs;
                 frame.flags = flags;
+                frame.codec_config =
+                    (flags & MediaCodec::BUFFER_FLAG_CODECCONFIG) != 0;
+                frame.sync = !frame.codec_config &&
+                    (flags & MediaCodec::BUFFER_FLAG_SYNCFRAME) != 0;
                 encoder->mCallbacks.data_available(encoder->mUser, &frame);
             }
 
             const bool eos = (flags & MediaCodec::BUFFER_FLAG_EOS) != 0;
             encoder->mCodec->releaseOutputBuffer(index);
             if (eos) {
+                ALOGI("Surface encoder output EOS reached");
+                /* Every preceding access unit has been delivered above. */
                 if (encoder->mCallbacks.eos) {
                     encoder->mCallbacks.eos(encoder->mUser);
                 }
+                sawEos = true;
                 break;
             }
         } else if (err == INFO_FORMAT_CHANGED) {
@@ -125,7 +166,60 @@ static void *surfaceEncoderThread(void *arg)
         }
     }
 
+    markThreadExited(encoder, sawEos);
     return NULL;
+}
+
+/* Invalidate the published generation so QPA detaches instead of swapping
+ * against a consumer that is about to stop or receive EOS. Must be called
+ * without mLock held (Binder call plus bounded sleep). */
+static void unregisterProducer(ScreenCaptureSurfaceEncoder *encoder)
+{
+    if (encoder->mGeneration != 0 && encoder->mService != NULL) {
+        ALOGI("unregistering Surface encoder generation=%" PRId64,
+              encoder->mGeneration);
+        encoder->mService->unregisterProducer(encoder->mGeneration);
+        encoder->mGeneration = 0;
+
+        /* If QPA is idle there is no producer swap to race; if a swap is
+         * already blocked, the later codec stop still forces the BufferQueue
+         * operation to return. */
+        struct timespec grace = {0, kDetachGraceNs};
+        while (nanosleep(&grace, &grace) != 0 && errno == EINTR) {}
+    }
+}
+
+/* Stop the codec, join the drain thread and publish STATE_STOPPED. Exactly
+ * one thread (the one that moved the state to FINISHING or STOPPING) may
+ * call this. Must be called without mLock held. */
+static void teardownCodec(ScreenCaptureSurfaceEncoder *encoder)
+{
+    /* stop() wakes dequeueOutputBuffer before joining the reader thread. */
+    encoder->mRunning = false;
+    status_t err = encoder->mCodec->stop();
+    if (encoder->mThreadCreated) {
+        void *result = NULL;
+        pthread_join(encoder->mThread, &result);
+        encoder->mThreadCreated = false;
+    }
+    encoder->mService.clear();
+    if (err != OK && err != -EINVAL) ALOGW("Surface encoder stop: %d", err);
+
+    pthread_mutex_lock(&encoder->mLock);
+    encoder->mState = STATE_STOPPED;
+    pthread_cond_broadcast(&encoder->mCond);
+    pthread_mutex_unlock(&encoder->mLock);
+}
+
+static void absTimeAfterMs(struct timespec *ts, int ms)
+{
+    clock_gettime(CLOCK_MONOTONIC, ts);
+    ts->tv_sec += ms / 1000;
+    ts->tv_nsec += (long)(ms % 1000) * 1000000L;
+    if (ts->tv_nsec >= 1000000000L) {
+        ts->tv_sec += 1;
+        ts->tv_nsec -= 1000000000L;
+    }
 }
 
 extern "C" {
@@ -145,7 +239,18 @@ ScreenCaptureSurfaceEncoder *screen_capture_surface_encoder_new(
     encoder->mGeneration = 0;
     encoder->mThreadCreated = false;
     encoder->mRunning = false;
-    encoder->mStarted = false;
+    encoder->mState = STATE_IDLE;
+    encoder->mOutputEos = false;
+    encoder->mThreadExited = false;
+    encoder->mStopRequested = false;
+    pthread_mutex_init(&encoder->mLock, NULL);
+    /* finish() bounds its drain wait with this condvar; use the monotonic
+     * clock so a wall-clock adjustment cannot shorten or extend it. */
+    pthread_condattr_t condAttr;
+    pthread_condattr_init(&condAttr);
+    pthread_condattr_setclock(&condAttr, CLOCK_MONOTONIC);
+    pthread_cond_init(&encoder->mCond, &condAttr);
+    pthread_condattr_destroy(&condAttr);
     memset(&encoder->mCallbacks, 0, sizeof(encoder->mCallbacks));
     if (callbacks) encoder->mCallbacks = *callbacks;
 
@@ -168,6 +273,8 @@ ScreenCaptureSurfaceEncoder *screen_capture_surface_encoder_new(
     if (encoder->mCodec == NULL) {
         ALOGE("no hardware AVC encoder component found");
         encoder->mLooper->stop();
+        pthread_cond_destroy(&encoder->mCond);
+        pthread_mutex_destroy(&encoder->mLock);
         delete encoder;
         return NULL;
     }
@@ -189,6 +296,8 @@ ScreenCaptureSurfaceEncoder *screen_capture_surface_encoder_new(
         encoder->mCodec->release();
         encoder->mCodec.clear();
         encoder->mLooper->stop();
+        pthread_cond_destroy(&encoder->mCond);
+        pthread_mutex_destroy(&encoder->mLock);
         delete encoder;
         return NULL;
     }
@@ -199,6 +308,8 @@ ScreenCaptureSurfaceEncoder *screen_capture_surface_encoder_new(
         encoder->mCodec->release();
         encoder->mCodec.clear();
         encoder->mLooper->stop();
+        pthread_cond_destroy(&encoder->mCond);
+        pthread_mutex_destroy(&encoder->mLock);
         delete encoder;
         return NULL;
     }
@@ -208,7 +319,14 @@ ScreenCaptureSurfaceEncoder *screen_capture_surface_encoder_new(
 
 bool screen_capture_surface_encoder_start(ScreenCaptureSurfaceEncoder *encoder)
 {
-    if (encoder == NULL || encoder->mStarted) return false;
+    if (encoder == NULL) return false;
+
+    pthread_mutex_lock(&encoder->mLock);
+    if (encoder->mState != STATE_IDLE) {
+        pthread_mutex_unlock(&encoder->mLock);
+        return false;
+    }
+    pthread_mutex_unlock(&encoder->mLock);
 
     /* Codec2 commonly returns an HIDL-to-Binder IGraphicBufferProducer adapter
      * hosted by this recorder process. Once it is published through
@@ -238,6 +356,9 @@ bool screen_capture_surface_encoder_start(ScreenCaptureSurfaceEncoder *encoder)
     }
 
     encoder->mRunning = true;
+    encoder->mOutputEos = false;
+    encoder->mThreadExited = false;
+    encoder->mStopRequested = false;
     int ret = pthread_create(&encoder->mThread, NULL, surfaceEncoderThread,
                              encoder);
     if (ret != 0) {
@@ -268,45 +389,92 @@ bool screen_capture_surface_encoder_start(ScreenCaptureSurfaceEncoder *encoder)
         return false;
     }
 
-    encoder->mStarted = true;
+    pthread_mutex_lock(&encoder->mLock);
+    encoder->mState = STATE_STARTED;
+    pthread_mutex_unlock(&encoder->mLock);
     ALOGI("Surface encoder ready: %dx%d @%d fps generation=%" PRId64,
           encoder->mWidth, encoder->mHeight, encoder->mFps,
           encoder->mGeneration);
     return true;
 }
 
+bool screen_capture_surface_encoder_finish(ScreenCaptureSurfaceEncoder *encoder,
+                                           int timeout_ms)
+{
+    if (encoder == NULL) return false;
+    if (timeout_ms <= 0) timeout_ms = kDefaultFinishTimeoutMs;
+
+    pthread_mutex_lock(&encoder->mLock);
+    if (encoder->mState != STATE_STARTED) {
+        pthread_mutex_unlock(&encoder->mLock);
+        return false;
+    }
+    encoder->mState = STATE_FINISHING;
+    pthread_mutex_unlock(&encoder->mLock);
+
+    unregisterProducer(encoder);
+
+    bool result = false;
+    /* The drain thread is still running: EOS propagates through it. */
+    status_t err = encoder->mCodec->signalEndOfInputStream();
+    if (err != OK) {
+        ALOGE("signalEndOfInputStream failed: %d; forcing stop", err);
+    } else {
+        ALOGI("Surface encoder input EOS signalled; draining up to %d ms",
+              timeout_ms);
+        struct timespec deadline;
+        absTimeAfterMs(&deadline, timeout_ms);
+
+        pthread_mutex_lock(&encoder->mLock);
+        int waitErr = 0;
+        while (!encoder->mOutputEos && !encoder->mThreadExited &&
+               !encoder->mStopRequested && waitErr != ETIMEDOUT) {
+            waitErr = pthread_cond_timedwait(&encoder->mCond, &encoder->mLock,
+                                             &deadline);
+        }
+        result = encoder->mOutputEos;
+        if (!result) {
+            ALOGW("Surface encoder finish did not reach codec EOS "
+                  "(timeout=%d thread_exited=%d stop_requested=%d)",
+                  waitErr == ETIMEDOUT, encoder->mThreadExited,
+                  encoder->mStopRequested);
+        }
+        pthread_mutex_unlock(&encoder->mLock);
+    }
+
+    teardownCodec(encoder);
+    return result;
+}
+
 void screen_capture_surface_encoder_stop(ScreenCaptureSurfaceEncoder *encoder)
 {
-    if (encoder == NULL || !encoder->mStarted) return;
+    if (encoder == NULL) return;
 
-    /* Invalidate the published generation before stopping the codec. QPA can
-     * then detach instead of attempting a swap against a stopped consumer. */
-    if (encoder->mGeneration != 0 && encoder->mService != NULL) {
-        ALOGI("unregistering Surface encoder generation=%" PRId64,
-              encoder->mGeneration);
-        encoder->mService->unregisterProducer(encoder->mGeneration);
-        encoder->mGeneration = 0;
-
-        /* QPA polls session state every 250 ms. Keep the codec and output drain
-         * alive for a bounded interval so an active display can detach before
-         * the input consumer is stopped. If QPA is idle there is no producer
-         * swap to race; if a swap is already blocked, stop below still forces
-         * the BufferQueue operation to return. */
-        struct timespec grace = {0, 500000000L};
-        while (nanosleep(&grace, &grace) != 0 && errno == EINTR) {}
+    pthread_mutex_lock(&encoder->mLock);
+    switch (encoder->mState) {
+    case STATE_IDLE:
+    case STATE_STOPPED:
+        pthread_mutex_unlock(&encoder->mLock);
+        return;
+    case STATE_FINISHING:
+    case STATE_STOPPING:
+        /* Another thread owns teardown. Cut its drain wait short and wait for
+         * it to publish STATE_STOPPED so this call is bounded by that path. */
+        encoder->mStopRequested = true;
+        pthread_cond_broadcast(&encoder->mCond);
+        while (encoder->mState != STATE_STOPPED) {
+            pthread_cond_wait(&encoder->mCond, &encoder->mLock);
+        }
+        pthread_mutex_unlock(&encoder->mLock);
+        return;
+    case STATE_STARTED:
+        encoder->mState = STATE_STOPPING;
+        break;
     }
+    pthread_mutex_unlock(&encoder->mLock);
 
-    /* stop() wakes dequeueOutputBuffer before joining the reader thread. */
-    encoder->mRunning = false;
-    status_t err = encoder->mCodec->stop();
-    if (encoder->mThreadCreated) {
-        void *result = NULL;
-        pthread_join(encoder->mThread, &result);
-        encoder->mThreadCreated = false;
-    }
-    encoder->mService.clear();
-    encoder->mStarted = false;
-    if (err != OK && err != -EINVAL) ALOGW("Surface encoder stop: %d", err);
+    unregisterProducer(encoder);
+    teardownCodec(encoder);
 }
 
 void screen_capture_surface_encoder_destroy(ScreenCaptureSurfaceEncoder *encoder)
@@ -322,6 +490,8 @@ void screen_capture_surface_encoder_destroy(ScreenCaptureSurfaceEncoder *encoder
         encoder->mLooper->stop();
         encoder->mLooper.clear();
     }
+    pthread_cond_destroy(&encoder->mCond);
+    pthread_mutex_destroy(&encoder->mLock);
     delete encoder;
 }
 

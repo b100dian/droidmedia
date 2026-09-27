@@ -22,6 +22,7 @@
 #include "droidmediaconstants.h"
 #include "droidmediarecorder.h"
 #include "screen_capture_encoder.h"
+#include "screen_capture_surface_encoder.h"
 #include <dlfcn.h>
 #include <assert.h>
 #include <stdio.h>
@@ -281,6 +282,13 @@ screen_capture_encoder_new(void *queue, int width, int height,
 HYBRIS_WRAPPER_0_1(ScreenCaptureEncoder*,screen_capture_encoder_destroy)
 HYBRIS_WRAPPER_1_1(bool,ScreenCaptureEncoder*,screen_capture_encoder_start)
 HYBRIS_WRAPPER_0_1(ScreenCaptureEncoder*,screen_capture_encoder_stop)
+
+/* screen_capture_surface_encoder wrappers (MediaCodec input-Surface path) */
+HYBRIS_WRAPPER_1_6(ScreenCaptureSurfaceEncoder*,int,int,int,int,const ScreenCaptureSurfaceEncoderCallbacks*,void*,screen_capture_surface_encoder_new)
+HYBRIS_WRAPPER_1_1(bool,ScreenCaptureSurfaceEncoder*,screen_capture_surface_encoder_start)
+HYBRIS_WRAPPER_1_2(bool,ScreenCaptureSurfaceEncoder*,int,screen_capture_surface_encoder_finish)
+HYBRIS_WRAPPER_0_1(ScreenCaptureSurfaceEncoder*,screen_capture_surface_encoder_stop)
+HYBRIS_WRAPPER_0_1(ScreenCaptureSurfaceEncoder*,screen_capture_surface_encoder_destroy)
 
 HYBRIS_WRAPPER_0_1(DroidMediaCameraConstants*,droid_media_camera_constants_init)
 HYBRIS_WRAPPER_0_1(DroidMediaPixelFormatConstants*,droid_media_pixel_format_constants_init)

@@ -9,8 +9,6 @@
 
 #include "../screen_capture_surface_encoder.h"
 
-#include <media/stagefright/MediaCodec.h>
-
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -30,6 +28,7 @@ struct TestState {
     bool haveTimestamp;
     bool debug;
     bool error;
+    bool eos;
 };
 
 static void onData(void *opaque, const ScreenCaptureSurfaceEncodedFrame *frame)
@@ -44,10 +43,11 @@ static void onData(void *opaque, const ScreenCaptureSurfaceEncodedFrame *frame)
     }
     state->bytes += frame->size;
     if (state->debug) {
-        fprintf(stderr, "output: size=%zu pts=%" PRId64 "us flags=0x%x\n",
-                frame->size, frame->timestamp_us, frame->flags);
+        fprintf(stderr, "output: size=%zu pts=%" PRId64 "us flags=0x%x "
+                "sync=%d config=%d\n", frame->size, frame->timestamp_us,
+                frame->flags, frame->sync, frame->codec_config);
     }
-    if (!(frame->flags & android::MediaCodec::BUFFER_FLAG_CODECCONFIG)) {
+    if (!frame->codec_config) {
         if (state->haveTimestamp &&
             frame->timestamp_us < state->lastTimestampUs) {
             fprintf(stderr, "non-monotonic output PTS: %" PRId64
@@ -73,8 +73,10 @@ static void onError(void *opaque, int error)
     fprintf(stderr, "encoder error: %d\n", error);
 }
 
-static void onEos(void *)
+static void onEos(void *opaque)
 {
+    TestState *state = static_cast<TestState *>(opaque);
+    state->eos = true;
     fprintf(stderr, "encoder EOS\n");
 }
 
@@ -128,7 +130,17 @@ int main(int argc, char **argv)
     fprintf(stderr, "waiting %d seconds for encoder-Surface frames...\n", duration);
     sleep(static_cast<unsigned int>(duration));
 
-    screen_capture_surface_encoder_stop(encoder);
+    /* SCREENCAP_SURFACE_FORCE_STOP selects the immediate stop path; the
+     * default exercises the graceful finish used by droidscreencapsrc. */
+    bool finished = false;
+    if (getenv("SCREENCAP_SURFACE_FORCE_STOP") != NULL) {
+        screen_capture_surface_encoder_stop(encoder);
+    } else {
+        finished = screen_capture_surface_encoder_finish(encoder, 3000);
+        fprintf(stderr, "graceful finish: %s (eos callback=%d)\n",
+                finished ? "reached codec EOS" : "timed out or failed",
+                state.eos ? 1 : 0);
+    }
     screen_capture_surface_encoder_destroy(encoder);
     close(fd);
 
