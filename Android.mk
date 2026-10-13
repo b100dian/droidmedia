@@ -463,9 +463,12 @@ endif
 include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
-LOCAL_SRC_FILES := libminisf.cpp minisf_screen_capture.cpp allocator.cpp
-LOCAL_SHARED_LIBRARIES := libdroidmedia \
-                          libutils \
+LOCAL_SRC_FILES := libminisf.cpp allocator.cpp
+ifeq ($(shell test $(ANDROID_MAJOR) -ge 8 && echo true),true)
+LOCAL_SRC_FILES += minisf_screen_capture.cpp \
+                   screen_capture_service.cpp
+endif
+LOCAL_SHARED_LIBRARIES := libutils \
                           libbinder \
                           libmedia \
                           libgui \
