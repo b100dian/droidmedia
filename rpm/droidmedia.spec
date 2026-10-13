@@ -93,11 +93,7 @@ cp out/target/product/*/system/bin/minimediaservice \
 cp out/target/product/*/system/bin/minisfservice \
    $RPM_BUILD_ROOT/%{_libexecdir}/droid-hybris/system/bin/
 
-# Gate-2 encoder-Surface diagnostics. The recorder owns the encoder and the
-# remote EGL probe distinguishes Android Binder/Surface failures from hybris.
 cp out/target/product/*/system/bin/screencap_surface_capture_test \
-   $RPM_BUILD_ROOT/%{_libexecdir}/droid-hybris/system/bin/
-cp out/target/product/*/system/bin/screencap_surface_remote_egl_test \
    $RPM_BUILD_ROOT/%{_libexecdir}/droid-hybris/system/bin/
 
 cp external/droidmedia/init/*.rc \
@@ -116,5 +112,4 @@ echo %{_libexecdir}/droid-hybris/system/$DROIDLIB/libminisf.so >> %{LIBDMSOLOC}
 %{_libexecdir}/droid-hybris/system/bin/minimediaservice
 %{_libexecdir}/droid-hybris/system/bin/minisfservice
 %{_libexecdir}/droid-hybris/system/bin/screencap_surface_capture_test
-%{_libexecdir}/droid-hybris/system/bin/screencap_surface_remote_egl_test
 %{_libexecdir}/droid-hybris/system/etc/init/*

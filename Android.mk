@@ -149,65 +149,7 @@ endif
 
 include $(BUILD_SHARED_LIBRARY)
 
-# ---------------------------------------------------------------------------
-# screencap_enc_test — Phase-0 standalone raw-input encoder harness
-# ---------------------------------------------------------------------------
-include $(CLEAR_VARS)
-LOCAL_SRC_FILES := tools/screencap_enc_test.cpp
-LOCAL_SHARED_LIBRARIES := libdroidmedia \
-                          libstagefright \
-                          libstagefright_foundation \
-                          libmedia \
-                          libui \
-                          libutils \
-                          libcutils \
-                          libbinder
-LOCAL_MODULE_TAGS := optional
-LOCAL_CPPFLAGS := -DANDROID_MAJOR=$(ANDROID_MAJOR) -DANDROID_MINOR=$(ANDROID_MINOR) -DANDROID_MICRO=$(ANDROID_MICRO) -Wno-unused-parameter
 ifeq ($(shell test $(ANDROID_MAJOR) -ge 8 && echo true),true)
-LOCAL_SHARED_LIBRARIES += liblog
-endif
-LOCAL_C_INCLUDES := frameworks/native/include/media/openmax \
-                    frameworks/native/include/media/hardware
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 11 && echo true),true)
-LOCAL_C_INCLUDES += frameworks/av/media/libstagefright/include
-endif
-LOCAL_MODULE := screencap_enc_test
-include $(BUILD_EXECUTABLE)
-
-# ---------------------------------------------------------------------------
-# screencap_surface_enc_test — Gate-1 MediaCodec Surface-input harness
-# ---------------------------------------------------------------------------
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 8 && echo true),true)
-include $(CLEAR_VARS)
-LOCAL_SRC_FILES := tools/screencap_surface_enc_test.cpp
-LOCAL_SHARED_LIBRARIES := libstagefright \
-                          libstagefright_foundation \
-                          libmedia \
-                          libgui \
-                          libnativewindow \
-                          libui \
-                          libutils \
-                          libcutils \
-                          libbinder \
-                          libEGL \
-                          libGLESv2 \
-                          liblog
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 9 && echo true),true)
-LOCAL_SHARED_LIBRARIES += libmedia_omx
-endif
-LOCAL_MODULE_TAGS := optional
-LOCAL_CPPFLAGS := -DANDROID_MAJOR=$(ANDROID_MAJOR) -DANDROID_MINOR=$(ANDROID_MINOR) -DANDROID_MICRO=$(ANDROID_MICRO) -Wno-unused-parameter
-LOCAL_C_INCLUDES := frameworks/native/include/media/openmax \
-                    frameworks/native/include/media/hardware \
-                    frameworks/native/libs/nativewindow/include
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 11 && echo true),true)
-LOCAL_C_INCLUDES += frameworks/av/media/libstagefright/include \
-                    frameworks/av/drm/libmediadrm/interface
-endif
-LOCAL_MODULE := screencap_surface_enc_test
-include $(BUILD_EXECUTABLE)
-
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES := tools/screencap_surface_capture_test.cpp
 LOCAL_SHARED_LIBRARIES := libdroidmedia \
@@ -236,41 +178,6 @@ endif
 LOCAL_MODULE := screencap_surface_capture_test
 include $(BUILD_EXECUTABLE)
 
-# ---------------------------------------------------------------------------
-# screencap_surface_remote_egl_test — Gate-2.1a remote producer diagnostic
-# ---------------------------------------------------------------------------
-# Runs Android EGL in a second process against the MediaCodec input producer
-# obtained through sailfish.screencap. It distinguishes Binder/Surface setup
-# failures from the Linux libhybris EGL wrapper path.
-include $(CLEAR_VARS)
-LOCAL_SRC_FILES := tools/screencap_surface_remote_egl_test.cpp
-LOCAL_SHARED_LIBRARIES := libdroidmedia \
-                          libstagefright \
-                          libstagefright_foundation \
-                          libmedia \
-                          libgui \
-                          libnativewindow \
-                          libui \
-                          libutils \
-                          libcutils \
-                          libbinder \
-                          libEGL \
-                          libGLESv2 \
-                          liblog
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 9 && echo true),true)
-LOCAL_SHARED_LIBRARIES += libmedia_omx
-endif
-LOCAL_MODULE_TAGS := optional
-LOCAL_CPPFLAGS := -DANDROID_MAJOR=$(ANDROID_MAJOR) -DANDROID_MINOR=$(ANDROID_MINOR) -DANDROID_MICRO=$(ANDROID_MICRO) -Wno-unused-parameter
-LOCAL_C_INCLUDES := frameworks/native/include/media/openmax \
-                    frameworks/native/include/media/hardware \
-                    frameworks/native/libs/nativewindow/include
-ifeq ($(shell test $(ANDROID_MAJOR) -ge 11 && echo true),true)
-LOCAL_C_INCLUDES += frameworks/av/media/libstagefright/include \
-                    frameworks/av/drm/libmediadrm/interface
-endif
-LOCAL_MODULE := screencap_surface_remote_egl_test
-include $(BUILD_EXECUTABLE)
 endif
 
 include $(CLEAR_VARS)
