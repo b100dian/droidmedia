@@ -21,7 +21,7 @@
 #include "droidmediaconvert.h"
 #include "droidmediaconstants.h"
 #include "droidmediarecorder.h"
-#include "screen_capture_surface_encoder.h"
+#include "droidmediascreencapture.h"
 #include <dlfcn.h>
 #include <assert.h>
 #include <stdio.h>
@@ -256,13 +256,6 @@ HYBRIS_WRAPPER_0_0(droid_media_deinit)
 HYBRIS_WRAPPER_1_2(DroidMediaBuffer*,DroidMediaBufferQueue*,DroidMediaBufferCallbacks*,droid_media_buffer_queue_acquire_buffer)
 HYBRIS_WRAPPER_0_3(DroidMediaBufferQueue*,DroidMediaBufferQueueCallbacks*,void*,droid_media_buffer_queue_set_callbacks)
 HYBRIS_WRAPPER_1_2(bool,DroidMediaBufferQueue*,DroidMediaBufferInfo*,droid_media_buffer_queue_acquire_and_release)
-/* screen_capture_surface_encoder wrappers (MediaCodec input-Surface path) */
-HYBRIS_WRAPPER_1_6(ScreenCaptureSurfaceEncoder*,int,int,int,int,const ScreenCaptureSurfaceEncoderCallbacks*,void*,screen_capture_surface_encoder_new)
-HYBRIS_WRAPPER_1_1(bool,ScreenCaptureSurfaceEncoder*,screen_capture_surface_encoder_start)
-HYBRIS_WRAPPER_1_2(bool,ScreenCaptureSurfaceEncoder*,int,screen_capture_surface_encoder_finish)
-HYBRIS_WRAPPER_0_1(ScreenCaptureSurfaceEncoder*,screen_capture_surface_encoder_stop)
-HYBRIS_WRAPPER_0_1(ScreenCaptureSurfaceEncoder*,screen_capture_surface_encoder_destroy)
-
 HYBRIS_WRAPPER_0_1(DroidMediaCameraConstants*,droid_media_camera_constants_init)
 HYBRIS_WRAPPER_0_1(DroidMediaPixelFormatConstants*,droid_media_pixel_format_constants_init)
 HYBRIS_WRAPPER_0_1(DroidMediaColourFormatConstants*,droid_media_colour_format_constants_init)
@@ -278,6 +271,29 @@ HYBRIS_WRAPPER_0_1(DroidMediaRecorder*,droid_media_recorder_destroy);
 HYBRIS_WRAPPER_1_1(bool,DroidMediaRecorder*,droid_media_recorder_start);
 HYBRIS_WRAPPER_0_1(DroidMediaRecorder*,droid_media_recorder_stop);
 HYBRIS_WRAPPER_0_3(DroidMediaRecorder*,DroidMediaCodecDataCallbacks*,void*,droid_media_recorder_set_data_callbacks);
+
+/* Missing from a libdroidmedia built for Android < 8. */
+DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, int bitrate,
+                                                        int fps,
+                                                        DroidMediaScreenCaptureCallbacks *cb,
+                                                        void *data)
+{
+  static DroidMediaScreenCapture *(* _sym)(int, int, int, int,
+                                           DroidMediaScreenCaptureCallbacks *, void *) = NULL;
+  static bool attempted = false;
+
+  if (!attempted) {
+    _sym = __try_resolve_sym("droid_media_screen_capture_new");
+    attempted = true;
+  }
+
+  return _sym ? _sym(width, height, bitrate, fps, cb, data) : NULL;
+}
+
+HYBRIS_WRAPPER_1_1(bool,DroidMediaScreenCapture*,droid_media_screen_capture_start);
+HYBRIS_WRAPPER_1_2(bool,DroidMediaScreenCapture*,int,droid_media_screen_capture_finish);
+HYBRIS_WRAPPER_0_1(DroidMediaScreenCapture*,droid_media_screen_capture_stop);
+HYBRIS_WRAPPER_0_1(DroidMediaScreenCapture*,droid_media_screen_capture_destroy);
 
 bool droid_media_camera_set_torch_mode(bool enabled)
 {

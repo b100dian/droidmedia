@@ -27,7 +27,7 @@ droidmedia_headers = [
     'droidmediaconvert.h',
     'droidmedia.h',
     'droidmediarecorder.h',
-    'screen_capture_surface_encoder.h',
+    'droidmediascreencapture.h',
 ]
 
 install_headers(droidmedia_headers, subdir : meson.project_name())

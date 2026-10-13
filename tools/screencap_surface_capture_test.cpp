@@ -1,150 +1,126 @@
 /*
- * Gate-2 recorder-side interoperability test.
+ * Copyright (C) 2026 Jolla Ltd.
  *
- * Creates the same Surface-input AVC encoder used by the future recorder,
- * registers its producer with sailfish.screencap, and drains H.264 while the
- * QPA process renders deterministic test bars into the registered Surface.
- * The test intentionally does not create an EGL context: QPA is the producer.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
-#include "../screen_capture_surface_encoder.h"
+/*
+ * Records the screen to a raw H.264 file with droid_media_screen_capture_*,
+ * without GStreamer. Needs a compositor with screen capture enabled.
+ *
+ * usage: screencap_surface_capture_test [width] [height] [bitrate] [fps]
+ *                                       [seconds] [output]
+ */
 
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "droidmediascreencapture.h"
 
-namespace {
-
-struct TestState {
-    int outputFd;
-    int frames;
-    size_t bytes;
-    int64_t lastTimestampUs;
-    bool haveTimestamp;
-    bool debug;
-    bool error;
-    bool eos;
+struct State {
+  int fd;
+  int frames;
+  size_t bytes;
+  int64_t last_ts;
+  bool error;
+  bool eos;
 };
 
-static void onData(void *opaque, const ScreenCaptureSurfaceEncodedFrame *frame)
+static void on_data(void *data, DroidMediaCodecData *encoded)
 {
-    TestState *state = static_cast<TestState *>(opaque);
-    if (frame->size == 0) return;
-    ssize_t written = write(state->outputFd, frame->data, frame->size);
-    if (written != static_cast<ssize_t>(frame->size)) {
-        fprintf(stderr, "write H.264 failed: %s\n", strerror(errno));
-        state->error = true;
-        return;
-    }
-    state->bytes += frame->size;
-    if (state->debug) {
-        fprintf(stderr, "output: size=%zu pts=%" PRId64 "us flags=0x%x "
-                "sync=%d config=%d\n", frame->size, frame->timestamp_us,
-                frame->flags, frame->sync, frame->codec_config);
-    }
-    if (!frame->codec_config) {
-        if (state->haveTimestamp &&
-            frame->timestamp_us < state->lastTimestampUs) {
-            fprintf(stderr, "non-monotonic output PTS: %" PRId64
-                    " after %" PRId64 "\n", frame->timestamp_us,
-                    state->lastTimestampUs);
-            state->error = true;
-        }
-        state->lastTimestampUs = frame->timestamp_us;
-        state->haveTimestamp = true;
-        ++state->frames;
-    }
-}
+  State *state = static_cast<State *>(data);
 
-static void onFormat(void *, int width, int height)
-{
-    fprintf(stderr, "output format: %dx%d\n", width, height);
-}
-
-static void onError(void *opaque, int error)
-{
-    TestState *state = static_cast<TestState *>(opaque);
+  if (write(state->fd, encoded->data.data, encoded->data.size) != encoded->data.size) {
+    fprintf(stderr, "write failed: %s\n", strerror(errno));
     state->error = true;
-    fprintf(stderr, "encoder error: %d\n", error);
+    return;
+  }
+  state->bytes += encoded->data.size;
+
+  if (!encoded->codec_config) {
+    if (state->frames > 0 && encoded->ts < state->last_ts) {
+      fprintf(stderr, "timestamp %" PRId64 " ns after %" PRId64 " ns\n",
+              encoded->ts, state->last_ts);
+      state->error = true;
+    }
+    state->last_ts = encoded->ts;
+    state->frames++;
+  }
 }
 
-static void onEos(void *opaque)
+static void on_error(void *data, int err)
 {
-    TestState *state = static_cast<TestState *>(opaque);
-    state->eos = true;
-    fprintf(stderr, "encoder EOS\n");
+  fprintf(stderr, "encoder error %d\n", err);
+  static_cast<State *>(data)->error = true;
 }
 
-} // namespace
+static void on_eos(void *data)
+{
+  static_cast<State *>(data)->eos = true;
+}
 
 int main(int argc, char **argv)
 {
-    const int width = argc > 1 ? atoi(argv[1]) : 1280;
-    const int height = argc > 2 ? atoi(argv[2]) : 720;
-    const int bitrate = argc > 3 ? atoi(argv[3]) : 8000000;
-    const int fps = argc > 4 ? atoi(argv[4]) : 30;
-    const int duration = argc > 5 ? atoi(argv[5]) : 10;
-    const char *path = argc > 6 ? argv[6] : "/tmp/screencap-gate2.h264";
+  int width = argc > 1 ? atoi(argv[1]) : 1080;
+  int height = argc > 2 ? atoi(argv[2]) : 2520;
+  int bitrate = argc > 3 ? atoi(argv[3]) : 8000000;
+  int fps = argc > 4 ? atoi(argv[4]) : 30;
+  int seconds = argc > 5 ? atoi(argv[5]) : 10;
+  const char *path = argc > 6 ? argv[6] : "/tmp/screencap.h264";
 
-    if (width <= 0 || height <= 0 || bitrate <= 0 || fps <= 0 || duration <= 0) {
-        fprintf(stderr, "usage: %s [width] [height] [bitrate] [fps] [seconds] [output]\n",
-                argv[0]);
-        return 2;
+  if (width <= 0 || height <= 0 || bitrate <= 0 || fps <= 0 || seconds <= 0) {
+    fprintf(stderr, "usage: %s [width] [height] [bitrate] [fps] [seconds] [output]\n",
+            argv[0]);
+    return 2;
+  }
+
+  State state = {};
+  state.fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (state.fd < 0) {
+    fprintf(stderr, "cannot open %s: %s\n", path, strerror(errno));
+    return 1;
+  }
+
+  DroidMediaScreenCaptureCallbacks cb = {};
+  cb.data_available = on_data;
+  cb.error = on_error;
+  cb.signal_eos = on_eos;
+
+  DroidMediaScreenCapture *capture =
+    droid_media_screen_capture_new(width, height, bitrate, fps, &cb, &state);
+  if (!capture || !droid_media_screen_capture_start(capture)) {
+    fprintf(stderr, "cannot start screen capture\n");
+    if (capture) {
+      droid_media_screen_capture_destroy(capture);
     }
+    close(state.fd);
+    return 1;
+  }
 
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) {
-        fprintf(stderr, "cannot open %s: %s\n", path, strerror(errno));
-        return 1;
-    }
+  fprintf(stderr, "recording %dx%d @%d fps for %d s to %s\n", width, height, fps, seconds,
+          path);
+  sleep(seconds);
 
-    TestState state = {};
-    state.outputFd = fd;
-    state.debug = getenv("SCREENCAP_SURFACE_DEBUG") != NULL;
-    ScreenCaptureSurfaceEncoderCallbacks callbacks = {};
-    callbacks.data_available = onData;
-    callbacks.format_changed = onFormat;
-    callbacks.error = onError;
-    callbacks.eos = onEos;
+  bool finished = droid_media_screen_capture_finish(capture, 3000);
+  fprintf(stderr, "graceful finish: %s\n", finished ? "reached codec EOS" : "timed out");
+  droid_media_screen_capture_destroy(capture);
+  close(state.fd);
 
-    fprintf(stderr, "Gate-2 Surface capture test: %dx%d @%d fps for %d seconds\n",
-            width, height, fps, duration);
-    ScreenCaptureSurfaceEncoder *encoder =
-        screen_capture_surface_encoder_new(width, height, bitrate, fps,
-                                           &callbacks, &state);
-    if (!encoder || !screen_capture_surface_encoder_start(encoder)) {
-        fprintf(stderr, "failed to start Surface encoder or register producer\n");
-        if (encoder) screen_capture_surface_encoder_destroy(encoder);
-        close(fd);
-        return 1;
-    }
-
-    fprintf(stderr, "producer registered; encoder and output drain are ready\n");
-    fprintf(stderr, "for Gate 2.1/2.1a, keep QPA capture disabled and start the "
-            "standalone EGL producer\n");
-    fprintf(stderr, "waiting %d seconds for encoder-Surface frames...\n", duration);
-    sleep(static_cast<unsigned int>(duration));
-
-    /* SCREENCAP_SURFACE_FORCE_STOP selects the immediate stop path; the
-     * default exercises the graceful finish used by droidscreencapsrc. */
-    bool finished = false;
-    if (getenv("SCREENCAP_SURFACE_FORCE_STOP") != NULL) {
-        screen_capture_surface_encoder_stop(encoder);
-    } else {
-        finished = screen_capture_surface_encoder_finish(encoder, 3000);
-        fprintf(stderr, "graceful finish: %s (eos callback=%d)\n",
-                finished ? "reached codec EOS" : "timed out or failed",
-                state.eos ? 1 : 0);
-    }
-    screen_capture_surface_encoder_destroy(encoder);
-    close(fd);
-
-    fprintf(stderr, "Gate-2 recorder stopped: frames=%d bytes=%zu error=%d output=%s\n",
-            state.frames, state.bytes, state.error ? 1 : 0, path);
-    return state.error || state.frames == 0 ? 1 : 0;
+  fprintf(stderr, "%d frames, %zu bytes, eos callback %d, error %d\n", state.frames,
+          state.bytes, state.eos, state.error);
+  return state.error || state.frames == 0 || !finished ? 1 : 0;
 }
