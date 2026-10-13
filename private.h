@@ -66,16 +66,6 @@ public:
 struct _DroidMediaBufferQueue : public android::RefBase {
 public:
   _DroidMediaBufferQueue(const char *name);
-
-  /* Diagnostic raw-capture producer wrapper. This type remains entirely
-   * inside droidmedia and is never exposed through the QPA/libminisf ABI. */
-  explicit _DroidMediaBufferQueue(android::sp<android::IGraphicBufferProducer> producer);
-
-  /* NEW — Component B: wrap an externally-fetched consumer (GStreamer side).
-   * connectListener() must be called after construction to hook the
-   * onFrameAvailable callback. */
-  explicit _DroidMediaBufferQueue(android::sp<android::IGraphicBufferConsumer> consumer);
-
   ~_DroidMediaBufferQueue();
 
   bool connectListener();
@@ -90,10 +80,6 @@ public:
   void setCallbacks(DroidMediaBufferQueueCallbacks *cb, void *data);
 
   void buffersReleased();
-
-  /* Accessors used only by the diagnostic raw-capture path. */
-  android::sp<android::IGraphicBufferProducer> producer() const { return m_producer; }
-  android::sp<android::IGraphicBufferConsumer> consumer() const { return m_queue; }
 
 private:
   friend class DroidMediaBufferQueueListener;
@@ -112,8 +98,6 @@ private:
   DroidMediaBufferSlot m_slots[android::BufferQueue::NUM_BUFFER_SLOTS];
 
   android::sp<DroidMediaBufferQueueListener> m_listener;
-  bool m_listenerConnected;
-  bool m_directConsumer;
   android::Mutex m_lock;
 
   DroidMediaBufferQueueCallbacks m_cb;

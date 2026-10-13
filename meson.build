@@ -1,8 +1,6 @@
 project(
-  'droidmedia',
-  ['c', 'cpp'],
+  'droidmedia', ['c', 'cpp'],
   default_options : ['warning_level=1', 'buildtype=debugoptimized'],
-version : '0.20260522.0+hwenc.20260927150313.ba0eb42'
 )
 
 droidmedia_version = meson.project_version()
@@ -29,7 +27,6 @@ droidmedia_headers = [
     'droidmediaconvert.h',
     'droidmedia.h',
     'droidmediarecorder.h',
-    'screen_capture_encoder.h',
     'screen_capture_surface_encoder.h',
 ]
 

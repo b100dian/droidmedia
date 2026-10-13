@@ -76,10 +76,7 @@ LOCAL_SRC_FILES := droidmedia.cpp \
                    allocator.cpp \
                    droidmediabuffer.cpp \
                    private.cpp \
-                   screen_capture.cpp \
                    screen_capture_service.cpp \
-                   screen_capture_mediasource.cpp \
-                   screen_capture_encoder.cpp \
                    screen_capture_surface_encoder.cpp
 
 ifeq ($(shell test $(ANDROID_MAJOR) -ge 7 && echo true),true)
