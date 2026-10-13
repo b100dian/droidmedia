@@ -75,12 +75,15 @@ LOCAL_SRC_FILES := droidmedia.cpp \
                    droidmediarecorder.cpp \
                    allocator.cpp \
                    droidmediabuffer.cpp \
-                   private.cpp \
-                   screen_capture_service.cpp \
-                   screen_capture_surface_encoder.cpp
+                   private.cpp
 
 ifeq ($(shell test $(ANDROID_MAJOR) -ge 7 && echo true),true)
 LOCAL_SRC_FILES += AsyncCodecSource.cpp
+endif
+
+ifeq ($(shell test $(ANDROID_MAJOR) -ge 8 && echo true),true)
+LOCAL_SRC_FILES += screen_capture_service.cpp \
+                   screen_capture_surface_encoder.cpp
 endif
 
 LOCAL_SHARED_LIBRARIES := libc \
@@ -393,6 +396,9 @@ include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES := minisf.cpp allocator.cpp
+ifeq ($(shell test $(ANDROID_MAJOR) -ge 8 && echo true),true)
+LOCAL_SRC_FILES += screen_capture_service.cpp
+endif
 LOCAL_SHARED_LIBRARIES := libutils \
                           libbinder \
                           libmedia \

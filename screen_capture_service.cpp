@@ -14,223 +14,190 @@
  * limitations under the License.
  */
 
+// A hand-written interface outside the AOSP allowlist of IInterface.h.
 #define DO_NOT_CHECK_MANUAL_BINDER_INTERFACES
 
+#include <inttypes.h>
+#include <utils/Log.h>
+#include <utils/Timers.h>
 #include "screen_capture_service.h"
-#include <gui/IGraphicBufferConsumer.h>
+
+#undef LOG_TAG
+#define LOG_TAG "ScreenCaptureService"
 
 namespace android {
 
 enum {
-    GET_CONSUMER = IBinder::FIRST_CALL_TRANSACTION,
-    GET_WIDTH,
-    GET_HEIGHT,
-    GET_PRODUCER,
-    REGISTER_PRODUCER,
-    UNREGISTER_PRODUCER,
+  GET_PRODUCER = IBinder::FIRST_CALL_TRANSACTION,
+  REGISTER_PRODUCER,
+  UNREGISTER_PRODUCER,
 };
 
-sp<IGraphicBufferConsumer> ScreenCaptureService::sConsumer;
-int ScreenCaptureService::sWidth = 0;
-int ScreenCaptureService::sHeight = 0;
-sp<IGraphicBufferProducer> ScreenCaptureService::sProducer;
-int ScreenCaptureService::sProducerWidth = 0;
-int ScreenCaptureService::sProducerHeight = 0;
-int ScreenCaptureService::sProducerFps = 0;
-int64_t ScreenCaptureService::sProducerGeneration = 0;
-Mutex ScreenCaptureService::sLock;
-
-/* BnScreenCaptureService — same-process dispatch */
-status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
-                                            Parcel* reply, uint32_t flags)
+class BpScreenCaptureService : public BpInterface<IScreenCaptureService>
 {
-    switch (code) {
-    case GET_CONSUMER: {
-        CHECK_INTERFACE(IScreenCaptureService, data, reply);
-        sp<IGraphicBufferConsumer> consumer = getConsumer();
-        reply->writeNoException();
-        reply->writeStrongBinder(IInterface::asBinder(consumer));
-        return NO_ERROR;
-    }
-    case GET_WIDTH: {
-        CHECK_INTERFACE(IScreenCaptureService, data, reply);
-        reply->writeNoException();
-        reply->writeInt32(getWidth());
-        return NO_ERROR;
-    }
-    case GET_HEIGHT: {
-        CHECK_INTERFACE(IScreenCaptureService, data, reply);
-        reply->writeNoException();
-        reply->writeInt32(getHeight());
-        return NO_ERROR;
-    }
-    case GET_PRODUCER: {
-        CHECK_INTERFACE(IScreenCaptureService, data, reply);
-        int width = 0;
-        int height = 0;
-        int fps = 0;
-        int64_t generation = 0;
-        sp<IGraphicBufferProducer> producer = getProducer(
-            &width, &height, &fps, &generation);
-        reply->writeNoException();
-        reply->writeStrongBinder(IInterface::asBinder(producer));
-        reply->writeInt32(width);
-        reply->writeInt32(height);
-        reply->writeInt32(fps);
-        reply->writeInt64(generation);
-        return NO_ERROR;
-    }
-    case REGISTER_PRODUCER: {
-        CHECK_INTERFACE(IScreenCaptureService, data, reply);
-        sp<IBinder> binder = data.readStrongBinder();
-        sp<IGraphicBufferProducer> producer;
-        if (binder != NULL) {
-            producer = interface_cast<IGraphicBufferProducer>(binder);
-        }
-        const int width = data.readInt32();
-        const int height = data.readInt32();
-        const int fps = data.readInt32();
-        const int64_t generation = registerProducer(producer, width, height, fps);
-        reply->writeNoException();
-        reply->writeInt64(generation);
-        return NO_ERROR;
-    }
-    case UNREGISTER_PRODUCER: {
-        CHECK_INTERFACE(IScreenCaptureService, data, reply);
-        unregisterProducer(data.readInt64());
-        reply->writeNoException();
-        return NO_ERROR;
-    }
-    default:
-        return BBinder::onTransact(code, data, reply, flags);
-    }
-}
+public:
+  explicit BpScreenCaptureService(const sp<IBinder>& impl) :
+    BpInterface<IScreenCaptureService>(impl) {
+  }
 
-/* BpScreenCaptureService — cross-process proxy, called from GStreamer process */
-
-sp<IGraphicBufferConsumer> BpScreenCaptureService::getConsumer()
-{
-    Parcel data, reply;
-    data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
-    status_t err = remote()->transact(GET_CONSUMER, data, &reply);
-    if (err != NO_ERROR) {
-        ALOGE("ScreenCaptureService getConsumer transact failed: %d", err);
-        return NULL;
-    }
-    int32_t exception = reply.readExceptionCode();
-    if (exception != 0) {
-        ALOGE("ScreenCaptureService getConsumer exception: %d", exception);
-        return NULL;
-    }
-    sp<IBinder> b = reply.readStrongBinder();
-    if (b == NULL) {
-        ALOGE("ScreenCaptureService getConsumer returned null binder");
-        return NULL;
-    }
-    return interface_cast<IGraphicBufferConsumer>(b);
-}
-
-int BpScreenCaptureService::getWidth()
-{
-    Parcel data, reply;
-    data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
-    status_t err = remote()->transact(GET_WIDTH, data, &reply);
-    if (err != NO_ERROR) {
-        ALOGE("ScreenCaptureService getWidth transact failed: %d", err);
-        return 0;
-    }
-    int32_t exception = reply.readExceptionCode();
-    if (exception != 0) {
-        ALOGE("ScreenCaptureService getWidth exception: %d", exception);
-        return 0;
-    }
-    return reply.readInt32();
-}
-
-int BpScreenCaptureService::getHeight()
-{
-    Parcel data, reply;
-    data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
-    status_t err = remote()->transact(GET_HEIGHT, data, &reply);
-    if (err != NO_ERROR) {
-        ALOGE("ScreenCaptureService getHeight transact failed: %d", err);
-        return 0;
-    }
-    int32_t exception = reply.readExceptionCode();
-    if (exception != 0) {
-        ALOGE("ScreenCaptureService getHeight exception: %d", exception);
-        return 0;
-    }
-    return reply.readInt32();
-}
-
-sp<IGraphicBufferProducer> BpScreenCaptureService::getProducer(
-    int *width, int *height, int *fps, int64_t *generation)
-{
+  sp<IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
+                                         int64_t *generation) override {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
     status_t err = remote()->transact(GET_PRODUCER, data, &reply);
     if (err != NO_ERROR) {
-        ALOGE("ScreenCaptureService getProducer transact failed: %d", err);
-        return NULL;
+      ALOGE("getProducer failed: %d", err);
+      return NULL;
     }
-    int32_t exception = reply.readExceptionCode();
-    if (exception != 0) {
-        ALOGE("ScreenCaptureService getProducer exception: %d", exception);
-        return NULL;
-    }
-    sp<IBinder> binder = reply.readStrongBinder();
-    int outWidth = reply.readInt32();
-    int outHeight = reply.readInt32();
-    int outFps = reply.readInt32();
-    int64_t outGeneration = reply.readInt64();
-    if (width) *width = outWidth;
-    if (height) *height = outHeight;
-    if (fps) *fps = outFps;
-    if (generation) *generation = outGeneration;
-    return binder != NULL ? interface_cast<IGraphicBufferProducer>(binder) : NULL;
-}
 
-int64_t BpScreenCaptureService::registerProducer(
-    const sp<IGraphicBufferProducer>& producer, int width, int height, int fps)
-{
+    sp<IGraphicBufferProducer> producer =
+      interface_cast<IGraphicBufferProducer>(reply.readStrongBinder());
+    *width = reply.readInt32();
+    *height = reply.readInt32();
+    *fps = reply.readInt32();
+    *generation = reply.readInt64();
+    return producer;
+  }
+
+  int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
+                           int width, int height, int fps) override {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
     data.writeStrongBinder(IInterface::asBinder(producer));
     data.writeInt32(width);
     data.writeInt32(height);
     data.writeInt32(fps);
-
     status_t err = remote()->transact(REGISTER_PRODUCER, data, &reply);
     if (err != NO_ERROR) {
-        ALOGE("ScreenCaptureService registerProducer transact failed: %d", err);
-        return 0;
+      ALOGE("registerProducer failed: %d", err);
+      return 0;
     }
-    int32_t exception = reply.readExceptionCode();
-    if (exception != 0) {
-        ALOGE("ScreenCaptureService registerProducer exception: %d", exception);
-        return 0;
-    }
-    return reply.readInt64();
-}
 
-void BpScreenCaptureService::unregisterProducer(int64_t generation)
-{
+    return reply.readInt64();
+  }
+
+  void unregisterProducer(int64_t generation) override {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
     data.writeInt64(generation);
-
     status_t err = remote()->transact(UNREGISTER_PRODUCER, data, &reply);
     if (err != NO_ERROR) {
-        ALOGE("ScreenCaptureService unregisterProducer transact failed: %d", err);
-        return;
+      ALOGE("unregisterProducer failed: %d", err);
     }
-    int32_t exception = reply.readExceptionCode();
-    if (exception != 0) {
-        ALOGE("ScreenCaptureService unregisterProducer exception: %d", exception);
-    }
+  }
+};
+
+IMPLEMENT_META_INTERFACE(ScreenCaptureService, "sailfish.IScreenCaptureService");
+
+status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
+                                            Parcel *reply, uint32_t flags)
+{
+  switch (code) {
+  case GET_PRODUCER: {
+    CHECK_INTERFACE(IScreenCaptureService, data, reply);
+    int width, height, fps;
+    int64_t generation;
+    sp<IGraphicBufferProducer> producer = getProducer(&width, &height, &fps, &generation);
+    reply->writeStrongBinder(IInterface::asBinder(producer));
+    reply->writeInt32(width);
+    reply->writeInt32(height);
+    reply->writeInt32(fps);
+    reply->writeInt64(generation);
+    return NO_ERROR;
+  }
+  case REGISTER_PRODUCER: {
+    CHECK_INTERFACE(IScreenCaptureService, data, reply);
+    sp<IGraphicBufferProducer> producer =
+      interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
+    int width = data.readInt32();
+    int height = data.readInt32();
+    int fps = data.readInt32();
+    reply->writeInt64(registerProducer(producer, width, height, fps));
+    return NO_ERROR;
+  }
+  case UNREGISTER_PRODUCER:
+    CHECK_INTERFACE(IScreenCaptureService, data, reply);
+    unregisterProducer(data.readInt64());
+    return NO_ERROR;
+  default:
+    return BBinder::onTransact(code, data, reply, flags);
+  }
 }
 
-IMPLEMENT_META_INTERFACE(ScreenCaptureService, "sailfish.screencap");
+// Generations start at the boot clock, so a restarted service never hands
+// out one the compositor has already seen and possibly given up on.
+ScreenCaptureService::ScreenCaptureService() :
+  m_width(0),
+  m_height(0),
+  m_fps(0),
+  m_generation(systemTime(SYSTEM_TIME_MONOTONIC)) {
+}
+
+sp<IGraphicBufferProducer> ScreenCaptureService::getProducer(int *width, int *height, int *fps,
+                                                             int64_t *generation)
+{
+  Mutex::Autolock lock(m_lock);
+  *width = m_width;
+  *height = m_height;
+  *fps = m_fps;
+  *generation = m_producer != NULL ? m_generation : 0;
+  return m_producer;
+}
+
+int64_t ScreenCaptureService::registerProducer(const sp<IGraphicBufferProducer>& producer,
+                                               int width, int height, int fps)
+{
+  if (producer == NULL || width <= 0 || height <= 0 || fps <= 0) {
+    ALOGE("Invalid session %dx%d @%d fps", width, height, fps);
+    return 0;
+  }
+
+  Mutex::Autolock lock(m_lock);
+  clearLocked();
+
+  // This service outlives recorders: end the session if the recorder dies.
+  status_t err = IInterface::asBinder(producer)->linkToDeath(this);
+  if (err != NO_ERROR) {
+    ALOGE("Cannot watch the recorder: %d", err);
+    return 0;
+  }
+
+  m_producer = producer;
+  m_width = width;
+  m_height = height;
+  m_fps = fps;
+  m_generation++;
+  ALOGI("Session %" PRId64 " started: %dx%d @%d fps", m_generation, width, height, fps);
+  return m_generation;
+}
+
+void ScreenCaptureService::unregisterProducer(int64_t generation)
+{
+  Mutex::Autolock lock(m_lock);
+  if (m_producer != NULL && generation == m_generation) {
+    ALOGI("Session %" PRId64 " ended", generation);
+    clearLocked();
+  }
+}
+
+void ScreenCaptureService::binderDied(const wp<IBinder>& who)
+{
+  Mutex::Autolock lock(m_lock);
+  if (m_producer != NULL && IInterface::asBinder(m_producer).get() == who.unsafe_get()) {
+    ALOGW("Recorder died, session %" PRId64 " ended", m_generation);
+    clearLocked();
+  }
+}
+
+void ScreenCaptureService::clearLocked()
+{
+  if (m_producer != NULL) {
+    IInterface::asBinder(m_producer)->unlinkToDeath(this);
+    m_producer.clear();
+  }
+  m_width = 0;
+  m_height = 0;
+  m_fps = 0;
+}
 
 } // namespace android
