@@ -60,7 +60,7 @@ static sp<IScreenCaptureService> screenCaptureService()
   }
 
   // The encoder's queue calls the producer listener that Surface serves from
-  // this process; give it Binder threads, as startMiniSurfaceFlinger() did.
+  // this process, so this process needs Binder threads.
   ProcessState::self()->startThreadPool();
 
   // Never getService(): it waits up to 5 s for a missing service.
