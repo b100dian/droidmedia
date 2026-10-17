@@ -47,10 +47,10 @@
 
 #define DEFAULT_FINISH_TIMEOUT_MS 2000
 
-// The compositor polls the session every 250 ms. After withdrawing the
-// Surface, keep the codec consuming for twice that, so the compositor detaches
-// before input stops or ends.
-#define DETACH_GRACE_MS 500
+// The compositor learns that the session ended at once, but a frame it is
+// already capturing may still be queued. After withdrawing the Surface, keep
+// the codec consuming briefly, so that frame lands before input ends.
+#define DETACH_GRACE_MS 100
 
 struct _DroidMediaScreenCapture {
   enum State {

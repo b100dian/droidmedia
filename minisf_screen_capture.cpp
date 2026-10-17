@@ -18,7 +18,9 @@
  * Screen capture entry points for the compositor. qt5-qpa-hwcomposer-plugin
  * resolves them with android_dlsym() and renders the display into the
  * Surface of the recorder registered with sailfish.screencap. They are called
- * on the compositor's render thread and must not block on a missing service.
+ * on the compositor's render thread: a session query reads the state the
+ * service pushes to this process, and only connecting to the service and
+ * acquiring a target make Binder calls.
  */
 
 #include <inttypes.h>
@@ -28,6 +30,7 @@
 #include <gui/Surface.h>
 #include <utils/Log.h>
 #include <utils/Mutex.h>
+#include <utils/Timers.h>
 #include "screen_capture_service.h"
 
 #undef LOG_TAG
@@ -48,26 +51,84 @@ struct MinisfScreenCaptureTarget {
   uint64_t generation;
 };
 
+// While the service is missing, look it up at most this often.
+static const nsecs_t ConnectRetryNs = ms2ns(250);
+
+// s_lock guards the state below.
 static Mutex s_lock;
 static sp<IScreenCaptureService> s_service;
+static ScreenCaptureSession s_session;
+static nsecs_t s_nextConnectNs;
 
-static sp<IScreenCaptureService> screenCaptureService()
+// Receives session changes and the death of minisfservice on Binder threads
+// of this process.
+class SessionListener : public BnScreenCaptureSessionListener,
+                        public IBinder::DeathRecipient
 {
-  Mutex::Autolock lock(s_lock);
-
-  if (s_service != NULL && IInterface::asBinder(s_service)->isBinderAlive()) {
-    return s_service;
+public:
+  void sessionChanged(const ScreenCaptureSession& session) override {
+    Mutex::Autolock lock(s_lock);
+    s_session = session;
   }
 
-  // The encoder's queue calls the producer listener that Surface serves from
-  // this process, so this process needs Binder threads.
+  void binderDied(const wp<IBinder>& who) override {
+    Mutex::Autolock lock(s_lock);
+    if (s_service != NULL && IInterface::asBinder(s_service).get() == who.unsafe_get()) {
+      ALOGW("%s died", ScreenCaptureService::getServiceName());
+      s_service.clear();
+      s_session = ScreenCaptureSession();
+    }
+  }
+};
+
+static sp<SessionListener> s_listener;
+
+// Looks up the service and subscribes to its session changes.
+static bool connectLocked()
+{
+  if (s_service != NULL) {
+    return true;
+  }
+
+  const nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
+  if (now < s_nextConnectNs) {
+    return false;
+  }
+  s_nextConnectNs = now + ConnectRetryNs;
+
+  // Session changes, and the encoder's queue calling the producer listener
+  // that Surface serves from this process, need Binder threads here.
   ProcessState::self()->startThreadPool();
 
   // Never getService(): it waits up to 5 s for a missing service.
   sp<IBinder> binder =
     defaultServiceManager()->checkService(String16(ScreenCaptureService::getServiceName()));
-  s_service = interface_cast<IScreenCaptureService>(binder);
-  return s_service;
+  if (binder == NULL) {
+    return false;
+  }
+
+  if (s_listener == NULL) {
+    s_listener = new SessionListener;
+  }
+  if (binder->linkToDeath(s_listener) != NO_ERROR) {
+    return false;
+  }
+
+  // The service only makes oneway calls to the listener, so a change that
+  // races this call waits for s_lock and lands after the snapshot.
+  sp<IScreenCaptureService> service = interface_cast<IScreenCaptureService>(binder);
+  ScreenCaptureSession session;
+  status_t err = service->registerListener(s_listener, &session);
+  if (err != NO_ERROR) {
+    ALOGE("Cannot subscribe to %s: %d", ScreenCaptureService::getServiceName(), err);
+    binder->unlinkToDeath(s_listener);
+    return false;
+  }
+
+  ALOGI("Subscribed to %s", ScreenCaptureService::getServiceName());
+  s_service = service;
+  s_session = session;
+  return true;
 }
 
 extern "C" {
@@ -76,24 +137,25 @@ int minisf_screen_capture_session_query(MinisfScreenCaptureSessionInfo *info)
 {
   memset(info, 0, sizeof(*info));
 
-  sp<IScreenCaptureService> service = screenCaptureService();
-  if (service == NULL) {
+  Mutex::Autolock lock(s_lock);
+  if (!connectLocked() || s_session.generation == 0) {
     return 0;
   }
 
-  int64_t generation = 0;
-  if (service->getProducer(&info->width, &info->height, &info->fps, &generation) == NULL) {
-    memset(info, 0, sizeof(*info));
-    return 0;
-  }
-
-  info->generation = generation;
+  info->generation = s_session.generation;
+  info->width = s_session.width;
+  info->height = s_session.height;
+  info->fps = s_session.fps;
   return 1;
 }
 
 void *minisf_screen_capture_target_acquire_generation(uint64_t generation)
 {
-  sp<IScreenCaptureService> service = screenCaptureService();
+  sp<IScreenCaptureService> service;
+  {
+    Mutex::Autolock lock(s_lock);
+    service = s_service;
+  }
   if (service == NULL) {
     return NULL;
   }
