@@ -145,12 +145,12 @@ struct _DroidMediaScreenCapture {
     android::ProcessState::self()->startThreadPool();
 
     android::sp<android::IBinder> binder = android::defaultServiceManager()->checkService(
-      android::String16(android::ScreenCaptureService::getServiceName()));
+      android::String16(sailfish::ScreenCaptureService::getServiceName()));
     if (binder == NULL) {
-      ALOGE("%s is not running", android::ScreenCaptureService::getServiceName());
+      ALOGE("%s is not running", sailfish::ScreenCaptureService::getServiceName());
       return false;
     }
-    m_service = android::interface_cast<android::IScreenCaptureService>(binder);
+    m_service = android::interface_cast<sailfish::IScreenCaptureService>(binder);
 
     android::status_t err = m_codec->start();
     if (err != android::OK) {
@@ -297,7 +297,7 @@ struct _DroidMediaScreenCapture {
   android::sp<android::ALooper> m_looper;
   android::sp<android::MediaCodec> m_codec;
   android::sp<android::IGraphicBufferProducer> m_producer;
-  android::sp<android::IScreenCaptureService> m_service;
+  android::sp<sailfish::IScreenCaptureService> m_service;
   int64_t m_generation;
   pthread_t m_thread;
   bool m_thread_started;

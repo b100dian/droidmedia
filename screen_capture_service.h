@@ -24,8 +24,10 @@
 
 #include <vector>
 
-namespace android {
+namespace sailfish {
 
+/* Also the layout of minisf_screen_capture_session_query() in libminisf.
+ * qt5-qpa-hwcomposer-plugin declares the same layout; keep them in sync. */
 struct ScreenCaptureSession {
   int64_t generation;  // 0: no session
   int width;
@@ -34,7 +36,7 @@ struct ScreenCaptureSession {
 };
 
 /* Implemented by the compositor (libminisf). Calls are oneway. */
-class IScreenCaptureSessionListener : public IInterface
+class IScreenCaptureSessionListener : public android::IInterface
 {
 public:
   DECLARE_META_INTERFACE(ScreenCaptureSessionListener);
@@ -42,11 +44,12 @@ public:
   virtual void sessionChanged(const ScreenCaptureSession& session) = 0;
 };
 
-class BnScreenCaptureSessionListener : public BnInterface<IScreenCaptureSessionListener>
+class BnScreenCaptureSessionListener :
+  public android::BnInterface<IScreenCaptureSessionListener>
 {
 public:
-  status_t onTransact(uint32_t code, const Parcel& data, Parcel *reply,
-                      uint32_t flags = 0) override;
+  android::status_t onTransact(uint32_t code, const android::Parcel& data,
+                               android::Parcel *reply, uint32_t flags = 0) override;
 };
 
 /*
@@ -59,66 +62,68 @@ public:
  * every registration starts a new generation, which tells the compositor that
  * its current target is stale.
  */
-class IScreenCaptureService : public IInterface
+class IScreenCaptureService : public android::IInterface
 {
 public:
   DECLARE_META_INTERFACE(ScreenCaptureService);
 
   /* Returns NULL when no recorder is registered. */
-  virtual sp<IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
-                                                 int64_t *generation) = 0;
+  virtual android::sp<android::IGraphicBufferProducer> getProducer(int *width, int *height,
+                                                                   int *fps,
+                                                                   int64_t *generation) = 0;
   /* Replaces any current session. Returns its generation, or 0 on failure. */
-  virtual int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
+  virtual int64_t registerProducer(const android::sp<android::IGraphicBufferProducer>& producer,
                                    int width, int height, int fps) = 0;
   /* Ends the session if it is still the given generation. */
   virtual void unregisterProducer(int64_t generation) = 0;
   /* Calls listener->sessionChanged() on every change until the listener's
    * process dies. Returns the current session in *session. */
-  virtual status_t registerListener(const sp<IScreenCaptureSessionListener>& listener,
-                                    ScreenCaptureSession *session) = 0;
+  virtual android::status_t registerListener(
+    const android::sp<IScreenCaptureSessionListener>& listener,
+    ScreenCaptureSession *session) = 0;
 };
 
-class BnScreenCaptureService : public BnInterface<IScreenCaptureService>
+class BnScreenCaptureService : public android::BnInterface<IScreenCaptureService>
 {
 public:
-  status_t onTransact(uint32_t code, const Parcel& data, Parcel *reply,
-                      uint32_t flags = 0) override;
+  android::status_t onTransact(uint32_t code, const android::Parcel& data,
+                               android::Parcel *reply, uint32_t flags = 0) override;
 };
 
 /* Hosted by minisfservice. */
-class ScreenCaptureService : public BinderService<ScreenCaptureService>,
+class ScreenCaptureService : public android::BinderService<ScreenCaptureService>,
                              public BnScreenCaptureService,
-                             public IBinder::DeathRecipient
+                             public android::IBinder::DeathRecipient
 {
 public:
   static char const *getServiceName() { return "sailfish.screencap"; }
 
   ScreenCaptureService();
 
-  sp<IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
-                                         int64_t *generation) override;
-  int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
+  android::sp<android::IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
+                                                           int64_t *generation) override;
+  int64_t registerProducer(const android::sp<android::IGraphicBufferProducer>& producer,
                            int width, int height, int fps) override;
   void unregisterProducer(int64_t generation) override;
-  status_t registerListener(const sp<IScreenCaptureSessionListener>& listener,
-                            ScreenCaptureSession *session) override;
+  android::status_t registerListener(const android::sp<IScreenCaptureSessionListener>& listener,
+                                     ScreenCaptureSession *session) override;
 
-  void binderDied(const wp<IBinder>& who) override;
+  void binderDied(const android::wp<android::IBinder>& who) override;
 
 private:
   ScreenCaptureSession currentLocked() const;
   void clearLocked();
   void notifyLocked();
 
-  Mutex m_lock;
-  sp<IGraphicBufferProducer> m_producer;
+  android::Mutex m_lock;
+  android::sp<android::IGraphicBufferProducer> m_producer;
   int m_width;
   int m_height;
   int m_fps;
   int64_t m_generation;
-  std::vector<sp<IScreenCaptureSessionListener>> m_listeners;
+  std::vector<android::sp<IScreenCaptureSessionListener>> m_listeners;
 };
 
-} // namespace android
+} // namespace sailfish
 
 #endif /* SCREEN_CAPTURE_SERVICE_H */

@@ -39,7 +39,7 @@ main(int, char**)
 
     MiniSurfaceFlinger::instantiate();
 #if ANDROID_MAJOR >= 8
-    ScreenCaptureService::instantiate();
+    sailfish::ScreenCaptureService::instantiate();
 #endif
 
 // Android 4 will not allow system services to be run from minimediaservice. So keep them here instead.

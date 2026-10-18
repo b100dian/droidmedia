@@ -24,7 +24,6 @@
  */
 
 #include <inttypes.h>
-#include <string.h>
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
 #include <gui/Surface.h>
@@ -37,14 +36,7 @@
 #define LOG_TAG "MinisfScreenCapture"
 
 using namespace android;
-
-/* qt5-qpa-hwcomposer-plugin declares the same layout; keep them in sync. */
-typedef struct {
-  uint64_t generation;
-  int width;
-  int height;
-  int fps;
-} MinisfScreenCaptureSessionInfo;
+using namespace sailfish;
 
 struct MinisfScreenCaptureTarget {
   sp<Surface> surface;
@@ -133,19 +125,15 @@ static bool connectLocked()
 
 extern "C" {
 
-int minisf_screen_capture_session_query(MinisfScreenCaptureSessionInfo *info)
+int minisf_screen_capture_session_query(ScreenCaptureSession *info)
 {
-  memset(info, 0, sizeof(*info));
-
   Mutex::Autolock lock(s_lock);
   if (!connectLocked() || s_session.generation == 0) {
+    *info = ScreenCaptureSession();
     return 0;
   }
 
-  info->generation = s_session.generation;
-  info->width = s_session.width;
-  info->height = s_session.height;
-  info->fps = s_session.fps;
+  *info = s_session;
   return 1;
 }
 

@@ -25,7 +25,9 @@
 #undef LOG_TAG
 #define LOG_TAG "ScreenCaptureService"
 
-namespace android {
+using namespace android;
+
+namespace sailfish {
 
 enum {
   GET_PRODUCER = IBinder::FIRST_CALL_TRANSACTION,
@@ -338,4 +340,4 @@ void ScreenCaptureService::clearLocked()
   m_fps = 0;
 }
 
-} // namespace android
+} // namespace sailfish
