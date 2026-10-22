@@ -272,7 +272,6 @@ HYBRIS_WRAPPER_1_1(bool,DroidMediaRecorder*,droid_media_recorder_start);
 HYBRIS_WRAPPER_0_1(DroidMediaRecorder*,droid_media_recorder_stop);
 HYBRIS_WRAPPER_0_3(DroidMediaRecorder*,DroidMediaCodecDataCallbacks*,void*,droid_media_recorder_set_data_callbacks);
 
-/* Missing from a libdroidmedia built for Android < 8. */
 DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, int bitrate,
                                                         int fps,
                                                         DroidMediaScreenCaptureCallbacks *cb,
@@ -283,6 +282,7 @@ DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, i
   static bool attempted = false;
 
   if (!attempted) {
+    /* Missing from a libdroidmedia built for Android < 8. */
     _sym = __try_resolve_sym("droid_media_screen_capture_new");
     attempted = true;
   }

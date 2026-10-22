@@ -221,7 +221,7 @@ sp<IGraphicBufferProducer> ScreenCaptureService::getProducer(int *width, int *he
                                                              int64_t *generation)
 {
   Mutex::Autolock lock(m_lock);
-  const ScreenCaptureSession session = currentLocked();
+  const ScreenCaptureSession session = sessionLocked();
   *width = session.width;
   *height = session.height;
   *fps = session.fps;
@@ -284,7 +284,7 @@ status_t ScreenCaptureService::registerListener(const sp<IScreenCaptureSessionLi
   }
 
   m_listeners.push_back(listener);
-  *session = currentLocked();
+  *session = sessionLocked();
   ALOGI("Listener added, %zu in total", m_listeners.size());
   return NO_ERROR;
 }
@@ -308,7 +308,7 @@ void ScreenCaptureService::binderDied(const wp<IBinder>& who)
   }
 }
 
-ScreenCaptureSession ScreenCaptureService::currentLocked() const
+ScreenCaptureSession ScreenCaptureService::sessionLocked() const
 {
   ScreenCaptureSession session;
   session.generation = m_producer != NULL ? m_generation : 0;
@@ -323,7 +323,7 @@ ScreenCaptureSession ScreenCaptureService::currentLocked() const
 // they never wait for the compositor.
 void ScreenCaptureService::notifyLocked()
 {
-  const ScreenCaptureSession session = currentLocked();
+  const ScreenCaptureSession session = sessionLocked();
   for (const auto& listener : m_listeners) {
     listener->sessionChanged(session);
   }

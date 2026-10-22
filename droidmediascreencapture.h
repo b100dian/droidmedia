@@ -26,30 +26,26 @@ extern "C" {
 #endif
 
 /*
- * Screen recording through a hardware H.264 encoder with Surface input.
+ * Encodes a hardware H.264 with android Surface as input.
  *
- * start() registers the encoder's input Surface with the sailfish.screencap
- * service (hosted by minisfservice). The compositor renders the display into
- * it whenever the screen changes, so idle periods are gaps in the timestamps,
- * not repeated frames. Output is H.264 byte-stream (Annex B).
+ * start() registers the input Surface with the sailfish.screencap service
+ * (hosted by minisfservice). The qt5-qpa-hwcomposer-plugin renders the display
+ * into it whenever the screen changes. Output is H.264 encoded.
  *
  * The object is single-use: new, start, finish or stop, destroy.
  */
 typedef struct _DroidMediaScreenCapture DroidMediaScreenCapture;
 
 /*
- * Called on the encoder's output thread, never with an internal lock held.
- * Callbacks must return promptly and must not call finish(), stop() or
- * destroy().
+ * Callbacks are called on the encoder's output thread.
+ * Must return promptly and must not call finish(), stop() or destroy().
  */
 typedef struct {
-  /* One access unit, or the SPS/PPS with codec_config set. ts is the
-   * presentation time the compositor gave the frame, in CLOCK_MONOTONIC
-   * nanoseconds. The data is valid during the call only. */
+  /* One access unit, or the SPS/PPS when codec_config is set. ts is the
+   * presentation time the compositor gave the frame, in CLOCK_MONOTONIC ns */
   void (* data_available)(void *data, DroidMediaCodecData *encoded);
   void (* error)(void *data, int err);
-  /* Called once, after the last access unit, if finish() reaches the end of
-   * the stream. */
+  /* Called once, after the last access unit, if finish() reaches end of stream */
   void (* signal_eos)(void *data);
 } DroidMediaScreenCaptureCallbacks;
 
@@ -60,13 +56,13 @@ DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, i
                                                         DroidMediaScreenCaptureCallbacks *cb,
                                                         void *data);
 
-/* Starts the encoder, then publishes its input Surface to the compositor. */
+/* Starts the encoder, that publishes its input Surface to the compositor. */
 bool droid_media_screen_capture_start(DroidMediaScreenCapture *capture);
 
 /*
- * Ends the recording gracefully: withdraws the Surface from the compositor,
+ * Ends the recording: removes the Surface from the compositor,
  * signals end of input and delivers the remaining output, then stops.
- * A non-positive timeout_ms selects the default bound. Returns true if the
+ * Negative timeout means use default value (2000ms). Returns true if the
  * end of the stream was reached; otherwise the encoder is stopped anyway.
  */
 bool droid_media_screen_capture_finish(DroidMediaScreenCapture *capture, int timeout_ms);

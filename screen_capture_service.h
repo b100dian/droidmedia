@@ -26,8 +26,7 @@
 
 namespace sailfish {
 
-/* Also the layout of minisf_screen_capture_session_query() in libminisf.
- * qt5-qpa-hwcomposer-plugin declares the same layout; keep them in sync. */
+/* qt5-qpa-hwcomposer-plugin declares the same layout; keep them in sync. */
 struct ScreenCaptureSession {
   int64_t generation;  // 0: no session
   int width;
@@ -35,7 +34,7 @@ struct ScreenCaptureSession {
   int fps;
 };
 
-/* Implemented by the compositor (libminisf). Calls are oneway. */
+/* Implemented by the compositor (through libminisf). Calls are oneway. */
 class IScreenCaptureSessionListener : public android::IInterface
 {
 public:
@@ -53,14 +52,12 @@ public:
 };
 
 /*
- * sailfish.screencap pairs a screen recorder with the compositor.
+ * sailfish.screencap service pairs a screen recorder with the compositor.
  *
- * The recorder (droidmediascreencapture.cpp) registers the input Surface
- * producer of its hardware encoder. The compositor subscribes through
- * libminisf (minisf_screen_capture.cpp), is told of every session change, and
- * renders the display into that Surface. There is one session at a time;
- * every registration starts a new generation, which tells the compositor that
- * its current target is stale.
+ * The recorder (droidmediascreencapture.cpp) registers the input Surface producer
+ * of its hardware encoder. The compositor subscribes through libminisf
+ * (minisf_screen_capture.cpp), and is notified of every session change and
+ * renders the display into that Surface. There is one session at a time.
  */
 class IScreenCaptureService : public android::IInterface
 {
@@ -76,8 +73,7 @@ public:
                                    int width, int height, int fps) = 0;
   /* Ends the session if it is still the given generation. */
   virtual void unregisterProducer(int64_t generation) = 0;
-  /* Calls listener->sessionChanged() on every change until the listener's
-   * process dies. Returns the current session in *session. */
+  /* Calls listener->sessionChanged(). Returns the current session in *session. */
   virtual android::status_t registerListener(
     const android::sp<IScreenCaptureSessionListener>& listener,
     ScreenCaptureSession *session) = 0;
@@ -111,10 +107,12 @@ public:
   void binderDied(const android::wp<android::IBinder>& who) override;
 
 private:
-  ScreenCaptureSession currentLocked() const;
+  // *Locked() methods require m_lock.
+  ScreenCaptureSession sessionLocked() const;
   void clearLocked();
   void notifyLocked();
 
+  // m_lock guards the members below.
   android::Mutex m_lock;
   android::sp<android::IGraphicBufferProducer> m_producer;
   int m_width;

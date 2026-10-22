@@ -15,11 +15,10 @@
  */
 
 #include <atomic>
-#include <chrono>
 #include <inttypes.h>
 #include <pthread.h>
 #include <string.h>
-#include <thread>
+#include <unistd.h>
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
 #include <gui/IGraphicBufferProducer.h>
@@ -47,7 +46,7 @@
 
 #define DEFAULT_FINISH_TIMEOUT_MS 2000
 
-// The compositor learns that the session ended at once, but a frame it is
+// The compositor is notified when the session ends, but a frame it is
 // already capturing may still be queued. After withdrawing the Surface, keep
 // the codec consuming briefly, so that frame lands before input ends.
 #define DETACH_GRACE_MS 100
@@ -56,8 +55,7 @@ struct _DroidMediaScreenCapture {
   enum State {
     IDLE,       // created, not started
     STARTED,    // codec running, Surface published
-    FINISHING,  // finish() draining to the end of the stream
-    STOPPING,   // stop() tearing down
+    STOPPING,   // finish() or stop() tearing down
     STOPPED,
   };
 
@@ -190,7 +188,7 @@ struct _DroidMediaScreenCapture {
 
     m_service->unregisterProducer(m_generation);
     m_generation = 0;
-    std::this_thread::sleep_for(std::chrono::milliseconds(DETACH_GRACE_MS));
+    usleep(DETACH_GRACE_MS * 1000);
   }
 
   void stopCodec() {
@@ -207,7 +205,7 @@ struct _DroidMediaScreenCapture {
     m_service.clear();
   }
 
-  // Only the thread that moved the state to FINISHING or STOPPING calls this.
+  // Only the thread that moved the state to STOPPING calls this.
   void teardown() {
     stopCodec();
 
@@ -310,7 +308,7 @@ struct _DroidMediaScreenCapture {
   bool m_eos;
   bool m_drain_exited;
   bool m_stop_requested;
-};
+}; // struct _DroidMediaScreenCapture
 
 extern "C" {
 
@@ -353,7 +351,7 @@ bool droid_media_screen_capture_finish(DroidMediaScreenCapture *capture, int tim
     if (capture->m_state != DroidMediaScreenCapture::STARTED) {
       return false;
     }
-    capture->m_state = DroidMediaScreenCapture::FINISHING;
+    capture->m_state = DroidMediaScreenCapture::STOPPING;
   }
 
   capture->unregisterProducer();
@@ -393,7 +391,6 @@ void droid_media_screen_capture_stop(DroidMediaScreenCapture *capture)
     case DroidMediaScreenCapture::IDLE:
     case DroidMediaScreenCapture::STOPPED:
       return;
-    case DroidMediaScreenCapture::FINISHING:
     case DroidMediaScreenCapture::STOPPING:
       // Another thread is tearing down; cut its wait short and wait for it.
       capture->m_stop_requested = true;

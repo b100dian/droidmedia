@@ -16,7 +16,7 @@
 
 /*
  * Records the screen to a raw H.264 file with droid_media_screen_capture_*,
- * without GStreamer. Needs a compositor with screen capture enabled.
+ * without GStreamer. Needs qt5-qpa-hwcomposer-plugin with screen recording enabled.
  *
  * usage: screencap_surface_capture_test [width] [height] [bitrate] [fps]
  *                                       [seconds] [output]
@@ -31,22 +31,22 @@
 #include <unistd.h>
 #include "droidmediascreencapture.h"
 
-struct State {
+struct RecordingState {
   int fd;
   int frames;
   size_t bytes;
   int64_t last_ts;
-  bool error;
+  int error;
   bool eos;
 };
 
 static void on_data(void *data, DroidMediaCodecData *encoded)
 {
-  State *state = static_cast<State *>(data);
+  RecordingState *state = static_cast<RecordingState*>(data);
 
   if (write(state->fd, encoded->data.data, encoded->data.size) != encoded->data.size) {
     fprintf(stderr, "write failed: %s\n", strerror(errno));
-    state->error = true;
+    state->error = errno;
     return;
   }
   state->bytes += encoded->data.size;
@@ -65,12 +65,12 @@ static void on_data(void *data, DroidMediaCodecData *encoded)
 static void on_error(void *data, int err)
 {
   fprintf(stderr, "encoder error %d\n", err);
-  static_cast<State *>(data)->error = true;
+  static_cast<RecordingState*>(data)->error = true;
 }
 
 static void on_eos(void *data)
 {
-  static_cast<State *>(data)->eos = true;
+  static_cast<RecordingState*>(data)->eos = true;
 }
 
 int main(int argc, char **argv)
@@ -88,7 +88,7 @@ int main(int argc, char **argv)
     return 2;
   }
 
-  State state = {};
+  RecordingState state = {};
   state.fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (state.fd < 0) {
     fprintf(stderr, "cannot open %s: %s\n", path, strerror(errno));
@@ -111,8 +111,7 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  fprintf(stderr, "recording %dx%d @%d fps for %d s to %s\n", width, height, fps, seconds,
-          path);
+  fprintf(stderr, "recording %dx%d @%d fps for %d s to %s\n", width, height, fps, seconds, path);
   sleep(seconds);
 
   bool finished = droid_media_screen_capture_finish(capture, 3000);
