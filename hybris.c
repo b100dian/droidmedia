@@ -272,12 +272,11 @@ HYBRIS_WRAPPER_1_1(bool,DroidMediaRecorder*,droid_media_recorder_start);
 HYBRIS_WRAPPER_0_1(DroidMediaRecorder*,droid_media_recorder_stop);
 HYBRIS_WRAPPER_0_3(DroidMediaRecorder*,DroidMediaCodecDataCallbacks*,void*,droid_media_recorder_set_data_callbacks);
 
-DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, int bitrate,
-                                                        int fps,
+DroidMediaScreenCapture *droid_media_screen_capture_new(DroidMediaCodecEncoderMetaData *meta,
                                                         DroidMediaScreenCaptureCallbacks *cb,
                                                         void *data)
 {
-  static DroidMediaScreenCapture *(* _sym)(int, int, int, int,
+  static DroidMediaScreenCapture *(* _sym)(DroidMediaCodecEncoderMetaData *,
                                            DroidMediaScreenCaptureCallbacks *, void *) = NULL;
   static bool attempted = false;
 
@@ -287,7 +286,7 @@ DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, i
     attempted = true;
   }
 
-  return _sym ? _sym(width, height, bitrate, fps, cb, data) : NULL;
+  return _sym ? _sym(meta, cb, data) : NULL;
 }
 
 HYBRIS_WRAPPER_1_1(bool,DroidMediaScreenCapture*,droid_media_screen_capture_start);

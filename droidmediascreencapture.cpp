@@ -39,6 +39,7 @@
 #include <utils/Mutex.h>
 #include <utils/Timers.h>
 #include "droidmediascreencapture.h"
+#include "private.h"
 #include "screen_capture_service.h"
 
 #undef LOG_TAG
@@ -59,12 +60,14 @@ struct _DroidMediaScreenCapture {
     STOPPED,
   };
 
-  _DroidMediaScreenCapture(int width, int height, int bitrate, int fps,
+  _DroidMediaScreenCapture(const DroidMediaCodecEncoderMetaData *meta,
                            DroidMediaScreenCaptureCallbacks *cb, void *data) :
-    m_width(width),
-    m_height(height),
-    m_bitrate(bitrate),
-    m_fps(fps),
+    m_width(meta->parent.width),
+    m_height(meta->parent.height),
+    m_bitrate(meta->bitrate),
+    m_fps(meta->parent.fps),
+    m_profile(meta->codec_specific.h264.profile),
+    m_level(meta->codec_specific.h264.level),
     m_cb_data(data),
     m_generation(0),
     m_thread_started(false),
@@ -120,11 +123,18 @@ struct _DroidMediaScreenCapture {
     format->setInt32("i-frame-interval", 1);
     format->setInt32("color-format", OMX_COLOR_FormatAndroidOpaque);
     format->setInt32("prepend-sps-pps-to-idr-frames", 1);
+    if (m_profile) {
+      droid_media_codec_set_h264_profile_level(format.get(), m_profile, m_level,
+                                               m_width, m_height, m_fps, m_bitrate);
+    } else if (m_level) {
+      ALOGW("Ignoring level 0x%x without a profile", m_level);
+    }
 
     android::status_t err = m_codec->configure(format, NULL, NULL,
                                                android::MediaCodec::CONFIGURE_FLAG_ENCODE);
     if (err != android::OK) {
-      ALOGE("Error 0x%x configuring %dx%d @%d fps", -err, m_width, m_height, m_fps);
+      ALOGE("Error 0x%x configuring %dx%d @%d fps, profile 0x%x level 0x%x", -err,
+            m_width, m_height, m_fps, m_profile, m_level);
       return false;
     }
 
@@ -290,6 +300,8 @@ struct _DroidMediaScreenCapture {
   int m_height;
   int m_bitrate;
   int m_fps;
+  int m_profile;
+  int m_level;
   DroidMediaScreenCaptureCallbacks m_cb;
   void *m_cb_data;
   android::sp<android::ALooper> m_looper;
@@ -312,18 +324,18 @@ struct _DroidMediaScreenCapture {
 
 extern "C" {
 
-DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, int bitrate,
-                                                        int fps,
+DroidMediaScreenCapture *droid_media_screen_capture_new(DroidMediaCodecEncoderMetaData *meta,
                                                         DroidMediaScreenCaptureCallbacks *cb,
                                                         void *data)
 {
-  if (width <= 0 || height <= 0 || bitrate <= 0 || fps <= 0) {
-    ALOGE("Invalid configuration %dx%d @%d fps, %d bps", width, height, fps, bitrate);
+  if (meta->parent.width <= 0 || meta->parent.height <= 0 || meta->bitrate <= 0 ||
+      meta->parent.fps <= 0) {
+    ALOGE("Invalid configuration %dx%d @%d fps, %d bps", meta->parent.width,
+          meta->parent.height, meta->parent.fps, meta->bitrate);
     return NULL;
   }
 
-  DroidMediaScreenCapture *capture =
-    new DroidMediaScreenCapture(width, height, bitrate, fps, cb, data);
+  DroidMediaScreenCapture *capture = new DroidMediaScreenCapture(meta, cb, data);
   if (!capture->configure()) {
     delete capture;
     return NULL;

@@ -49,10 +49,15 @@ typedef struct {
   void (* signal_eos)(void *data);
 } DroidMediaScreenCaptureCallbacks;
 
-/* Returns NULL if no hardware AVC encoder accepts the configuration, or if
- * libdroidmedia was built without screen capture (Android < 8). */
-DroidMediaScreenCapture *droid_media_screen_capture_new(int width, int height, int bitrate,
-                                                        int fps,
+/*
+ * Uses parent.width, parent.height, parent.fps, bitrate and
+ * codec_specific.h264.profile and level from meta; the other fields are
+ * ignored. A profile of 0 leaves profile and level to the encoder.
+ *
+ * Returns NULL if no hardware AVC encoder accepts the configuration, or if
+ * libdroidmedia was built without screen capture (Android < 8).
+ */
+DroidMediaScreenCapture *droid_media_screen_capture_new(DroidMediaCodecEncoderMetaData *meta,
                                                         DroidMediaScreenCaptureCallbacks *cb,
                                                         void *data);
 

@@ -100,8 +100,13 @@ int main(int argc, char **argv)
   cb.error = on_error;
   cb.signal_eos = on_eos;
 
-  DroidMediaScreenCapture *capture =
-    droid_media_screen_capture_new(width, height, bitrate, fps, &cb, &state);
+  DroidMediaCodecEncoderMetaData meta = {};
+  meta.parent.width = width;
+  meta.parent.height = height;
+  meta.parent.fps = fps;
+  meta.bitrate = bitrate;
+
+  DroidMediaScreenCapture *capture = droid_media_screen_capture_new(&meta, &cb, &state);
   if (!capture || !droid_media_screen_capture_start(capture)) {
     fprintf(stderr, "cannot start screen capture\n");
     if (capture) {
