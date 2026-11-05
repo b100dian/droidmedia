@@ -26,15 +26,19 @@ extern "C" {
 #endif
 
 /*
- * Encodes a hardware H.264 with android Surface as input.
- *
- * start() registers the input Surface with the sailfish.screencap service
- * (hosted by minisfservice). The qt5-qpa-hwcomposer-plugin renders the display
- * into it whenever the screen changes. Output is H.264 encoded.
- *
- * The object is single-use: new, start, finish or stop, destroy.
+ * Hardware H.264 encoder fed by an input Surface that start() registers with
+ * sailfish.screencap; for a DISPLAY target, the compositor draws the display into it.
+ * Single-use: new, [set_target], start, finish or stop, destroy.
  */
 typedef struct _DroidMediaScreenCapture DroidMediaScreenCapture;
+
+/* Who renders into the Surface */
+typedef enum {
+  /* The compositor mirrors the display */
+  DROID_MEDIA_SCREEN_CAPTURE_TARGET_DISPLAY = 0,
+  /* A renderer of its own; the compositor ignores the session */
+  DROID_MEDIA_SCREEN_CAPTURE_TARGET_VIRTUAL = 1,
+} DroidMediaScreenCaptureTarget;
 
 /*
  * Callbacks are called on the encoder's output thread.
@@ -49,33 +53,31 @@ typedef struct {
   void (* signal_eos)(void *data);
 } DroidMediaScreenCaptureCallbacks;
 
-/*
- * Uses parent.width, parent.height, parent.fps, bitrate and
- * codec_specific.h264.profile and level from meta; the other fields are
- * ignored. A profile of 0 leaves profile and level to the encoder.
- *
- * Returns NULL if no hardware AVC encoder accepts the configuration, or if
- * libdroidmedia was built without screen capture (Android < 8).
- */
+/* Uses meta's parent.width, height and fps, bitrate and codec_specific.h264 (profile 0:
+ * the encoder's). NULL if no hardware AVC encoder accepts them, or on Android < 8. */
 DroidMediaScreenCapture *droid_media_screen_capture_new(DroidMediaCodecEncoderMetaData *meta,
                                                         DroidMediaScreenCaptureCallbacks *cb,
                                                         void *data);
 
+/* Only before start(); the target defaults to DISPLAY. content_rect is where the picture
+ * goes, all 0 for the whole frame. False for an unknown target or a rect outside the frame. */
+bool droid_media_screen_capture_set_target(DroidMediaScreenCapture *capture,
+                                           DroidMediaScreenCaptureTarget target,
+                                           DroidMediaRect content_rect);
+
 /* Starts the encoder, that publishes its input Surface to the compositor. */
 bool droid_media_screen_capture_start(DroidMediaScreenCapture *capture);
 
-/*
- * Ends the recording: removes the Surface from the compositor,
- * signals end of input and delivers the remaining output, then stops.
- * Negative timeout means use default value (2000ms). Returns true if the
- * end of the stream was reached; otherwise the encoder is stopped anyway.
- */
+/* Makes the next frame an IDR and asks the renderer for it, even on an idle screen.
+ * Callable from any thread, also from the callbacks. Returns false unless started. */
+bool droid_media_screen_capture_request_sync_frame(DroidMediaScreenCapture *capture);
+
+/* Withdraws the Surface, delivers the remaining output and stops; timeout_ms <= 0 is 2000.
+ * Returns true if the end of the stream was reached; the encoder is stopped either way. */
 bool droid_media_screen_capture_finish(DroidMediaScreenCapture *capture, int timeout_ms);
 
-/*
- * Stops immediately and discards pending output. Idempotent; if finish() is
- * running on another thread, cuts it short and waits for it.
- */
+/* Stops immediately and discards pending output. Idempotent; if finish() is
+ * running on another thread, cuts it short and waits for it. */
 void droid_media_screen_capture_stop(DroidMediaScreenCapture *capture);
 
 /* Stops if needed, then frees the object. */

@@ -289,7 +289,9 @@ DroidMediaScreenCapture *droid_media_screen_capture_new(DroidMediaCodecEncoderMe
   return _sym ? _sym(meta, cb, data) : NULL;
 }
 
+HYBRIS_WRAPPER_1_3(bool,DroidMediaScreenCapture*,DroidMediaScreenCaptureTarget,DroidMediaRect,droid_media_screen_capture_set_target);
 HYBRIS_WRAPPER_1_1(bool,DroidMediaScreenCapture*,droid_media_screen_capture_start);
+HYBRIS_WRAPPER_1_1(bool,DroidMediaScreenCapture*,droid_media_screen_capture_request_sync_frame);
 HYBRIS_WRAPPER_1_2(bool,DroidMediaScreenCapture*,int,droid_media_screen_capture_finish);
 HYBRIS_WRAPPER_0_1(DroidMediaScreenCapture*,droid_media_screen_capture_stop);
 HYBRIS_WRAPPER_0_1(DroidMediaScreenCapture*,droid_media_screen_capture_destroy);

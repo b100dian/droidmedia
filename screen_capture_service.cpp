@@ -34,11 +34,25 @@ enum {
   REGISTER_PRODUCER,
   UNREGISTER_PRODUCER,
   REGISTER_LISTENER,
+  REQUEST_FRAME,
 };
 
 enum {
   SESSION_CHANGED = IBinder::FIRST_CALL_TRANSACTION,
+  FRAME_REQUESTED,
 };
+
+bool screenCaptureTargetValid(int width, int height, int target, const DroidMediaRect& rect)
+{
+  if (target != SCREEN_CAPTURE_TARGET_DISPLAY && target != SCREEN_CAPTURE_TARGET_VIRTUAL) {
+    return false;
+  }
+  if (rect.left == 0 && rect.top == 0 && rect.right == 0 && rect.bottom == 0) {
+    return true;
+  }
+  return rect.left >= 0 && rect.top >= 0 && rect.left < rect.right && rect.top < rect.bottom &&
+    rect.right <= width && rect.bottom <= height;
+}
 
 static void writeSession(Parcel *parcel, const ScreenCaptureSession& session)
 {
@@ -46,6 +60,11 @@ static void writeSession(Parcel *parcel, const ScreenCaptureSession& session)
   parcel->writeInt32(session.width);
   parcel->writeInt32(session.height);
   parcel->writeInt32(session.fps);
+  parcel->writeInt32(session.target);
+  parcel->writeInt32(session.content_rect.left);
+  parcel->writeInt32(session.content_rect.top);
+  parcel->writeInt32(session.content_rect.right);
+  parcel->writeInt32(session.content_rect.bottom);
 }
 
 static ScreenCaptureSession readSession(const Parcel& parcel)
@@ -55,6 +74,11 @@ static ScreenCaptureSession readSession(const Parcel& parcel)
   session.width = parcel.readInt32();
   session.height = parcel.readInt32();
   session.fps = parcel.readInt32();
+  session.target = parcel.readInt32();
+  session.content_rect.left = parcel.readInt32();
+  session.content_rect.top = parcel.readInt32();
+  session.content_rect.right = parcel.readInt32();
+  session.content_rect.bottom = parcel.readInt32();
   return session;
 }
 
@@ -75,6 +99,16 @@ public:
       ALOGW("sessionChanged failed: %d", err);
     }
   }
+
+  void frameRequested(int64_t generation) override {
+    Parcel data, reply;
+    data.writeInterfaceToken(IScreenCaptureSessionListener::getInterfaceDescriptor());
+    data.writeInt64(generation);
+    status_t err = remote()->transact(FRAME_REQUESTED, data, &reply, IBinder::FLAG_ONEWAY);
+    if (err != NO_ERROR) {
+      ALOGW("frameRequested failed: %d", err);
+    }
+  }
 };
 
 IMPLEMENT_META_INTERFACE(ScreenCaptureSessionListener, "sailfish.IScreenCaptureSessionListener");
@@ -86,6 +120,10 @@ status_t BnScreenCaptureSessionListener::onTransact(uint32_t code, const Parcel&
   case SESSION_CHANGED:
     CHECK_INTERFACE(IScreenCaptureSessionListener, data, reply);
     sessionChanged(readSession(data));
+    return NO_ERROR;
+  case FRAME_REQUESTED:
+    CHECK_INTERFACE(IScreenCaptureSessionListener, data, reply);
+    frameRequested(data.readInt64());
     return NO_ERROR;
   default:
     return BBinder::onTransact(code, data, reply, flags);
@@ -99,33 +137,28 @@ public:
     BpInterface<IScreenCaptureService>(impl) {
   }
 
-  sp<IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
-                                         int64_t *generation) override {
+  sp<IGraphicBufferProducer> getProducer(ScreenCaptureSession *session) override {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
     status_t err = remote()->transact(GET_PRODUCER, data, &reply);
     if (err != NO_ERROR) {
       ALOGE("getProducer failed: %d", err);
+      *session = ScreenCaptureSession();
       return NULL;
     }
 
     sp<IGraphicBufferProducer> producer =
       interface_cast<IGraphicBufferProducer>(reply.readStrongBinder());
-    *width = reply.readInt32();
-    *height = reply.readInt32();
-    *fps = reply.readInt32();
-    *generation = reply.readInt64();
+    *session = readSession(reply);
     return producer;
   }
 
   int64_t registerProducer(const sp<IGraphicBufferProducer>& producer,
-                           int width, int height, int fps) override {
+                           const ScreenCaptureSession& session) override {
     Parcel data, reply;
     data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
     data.writeStrongBinder(IInterface::asBinder(producer));
-    data.writeInt32(width);
-    data.writeInt32(height);
-    data.writeInt32(fps);
+    writeSession(&data, session);
     status_t err = remote()->transact(REGISTER_PRODUCER, data, &reply);
     if (err != NO_ERROR) {
       ALOGE("registerProducer failed: %d", err);
@@ -159,6 +192,17 @@ public:
     }
     return err;
   }
+
+  void requestFrame(int64_t generation) override {
+    Parcel data, reply;
+    data.writeInterfaceToken(IScreenCaptureService::getInterfaceDescriptor());
+    data.writeInt64(generation);
+    // Oneway: the recorder never waits for the service.
+    status_t err = remote()->transact(REQUEST_FRAME, data, &reply, IBinder::FLAG_ONEWAY);
+    if (err != NO_ERROR) {
+      ALOGE("requestFrame failed: %d", err);
+    }
+  }
 };
 
 IMPLEMENT_META_INTERFACE(ScreenCaptureService, "sailfish.IScreenCaptureService");
@@ -169,24 +213,17 @@ status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
   switch (code) {
   case GET_PRODUCER: {
     CHECK_INTERFACE(IScreenCaptureService, data, reply);
-    int width, height, fps;
-    int64_t generation;
-    sp<IGraphicBufferProducer> producer = getProducer(&width, &height, &fps, &generation);
+    ScreenCaptureSession session;
+    sp<IGraphicBufferProducer> producer = getProducer(&session);
     reply->writeStrongBinder(IInterface::asBinder(producer));
-    reply->writeInt32(width);
-    reply->writeInt32(height);
-    reply->writeInt32(fps);
-    reply->writeInt64(generation);
+    writeSession(reply, session);
     return NO_ERROR;
   }
   case REGISTER_PRODUCER: {
     CHECK_INTERFACE(IScreenCaptureService, data, reply);
     sp<IGraphicBufferProducer> producer =
       interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
-    int width = data.readInt32();
-    int height = data.readInt32();
-    int fps = data.readInt32();
-    reply->writeInt64(registerProducer(producer, width, height, fps));
+    reply->writeInt64(registerProducer(producer, readSession(data)));
     return NO_ERROR;
   }
   case UNREGISTER_PRODUCER:
@@ -203,6 +240,10 @@ status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
     writeSession(reply, session);
     return NO_ERROR;
   }
+  case REQUEST_FRAME:
+    CHECK_INTERFACE(IScreenCaptureService, data, reply);
+    requestFrame(data.readInt64());
+    return NO_ERROR;
   default:
     return BBinder::onTransact(code, data, reply, flags);
   }
@@ -211,29 +252,26 @@ status_t BnScreenCaptureService::onTransact(uint32_t code, const Parcel& data,
 // Generations start at the boot clock, so a restarted service never hands
 // out one the compositor has already seen and possibly given up on.
 ScreenCaptureService::ScreenCaptureService() :
-  m_width(0),
-  m_height(0),
-  m_fps(0),
+  m_session(),
   m_generation(systemTime(SYSTEM_TIME_MONOTONIC)) {
 }
 
-sp<IGraphicBufferProducer> ScreenCaptureService::getProducer(int *width, int *height, int *fps,
-                                                             int64_t *generation)
+sp<IGraphicBufferProducer> ScreenCaptureService::getProducer(ScreenCaptureSession *session)
 {
   Mutex::Autolock lock(m_lock);
-  const ScreenCaptureSession session = sessionLocked();
-  *width = session.width;
-  *height = session.height;
-  *fps = session.fps;
-  *generation = session.generation;
+  *session = sessionLocked();
   return m_producer;
 }
 
 int64_t ScreenCaptureService::registerProducer(const sp<IGraphicBufferProducer>& producer,
-                                               int width, int height, int fps)
+                                               const ScreenCaptureSession& session)
 {
-  if (producer == NULL || width <= 0 || height <= 0 || fps <= 0) {
-    ALOGE("Invalid session %dx%d @%d fps", width, height, fps);
+  if (producer == NULL || session.width <= 0 || session.height <= 0 || session.fps <= 0 ||
+      !screenCaptureTargetValid(session.width, session.height, session.target,
+                                session.content_rect)) {
+    ALOGE("Invalid session %dx%d @%d fps, target %d, content %d,%d-%d,%d",
+          session.width, session.height, session.fps, session.target, session.content_rect.left,
+          session.content_rect.top, session.content_rect.right, session.content_rect.bottom);
     return 0;
   }
 
@@ -249,11 +287,13 @@ int64_t ScreenCaptureService::registerProducer(const sp<IGraphicBufferProducer>&
   }
 
   m_producer = producer;
-  m_width = width;
-  m_height = height;
-  m_fps = fps;
+  m_session = session;
+  m_session.generation = 0;
   m_generation++;
-  ALOGI("Session %" PRId64 " started: %dx%d @%d fps", m_generation, width, height, fps);
+  ALOGI("Session %" PRId64 " started: %dx%d @%d fps, target %d, content %d,%d-%d,%d",
+        m_generation, session.width, session.height, session.fps, session.target,
+        session.content_rect.left, session.content_rect.top, session.content_rect.right,
+        session.content_rect.bottom);
   notifyLocked();
   return m_generation;
 }
@@ -289,6 +329,19 @@ status_t ScreenCaptureService::registerListener(const sp<IScreenCaptureSessionLi
   return NO_ERROR;
 }
 
+void ScreenCaptureService::requestFrame(int64_t generation)
+{
+  Mutex::Autolock lock(m_lock);
+  if (m_producer == NULL || generation != m_generation) {
+    return;
+  }
+
+  // Under m_lock, like notifyLocked(), so it follows its generation's session change.
+  for (const auto& listener : m_listeners) {
+    listener->frameRequested(generation);
+  }
+}
+
 void ScreenCaptureService::binderDied(const wp<IBinder>& who)
 {
   Mutex::Autolock lock(m_lock);
@@ -310,17 +363,12 @@ void ScreenCaptureService::binderDied(const wp<IBinder>& who)
 
 ScreenCaptureSession ScreenCaptureService::sessionLocked() const
 {
-  ScreenCaptureSession session;
+  ScreenCaptureSession session = m_session;
   session.generation = m_producer != NULL ? m_generation : 0;
-  session.width = m_width;
-  session.height = m_height;
-  session.fps = m_fps;
   return session;
 }
 
-// Called under m_lock, so that every listener sees the changes in order:
-// oneway calls to one binder are delivered in the order they were sent, and
-// they never wait for the compositor.
+// Under m_lock, so oneway listener calls arrive in generation order.
 void ScreenCaptureService::notifyLocked()
 {
   const ScreenCaptureSession session = sessionLocked();
@@ -335,9 +383,7 @@ void ScreenCaptureService::clearLocked()
     IInterface::asBinder(m_producer)->unlinkToDeath(this);
     m_producer.clear();
   }
-  m_width = 0;
-  m_height = 0;
-  m_fps = 0;
+  m_session = ScreenCaptureSession();
 }
 
 } // namespace sailfish

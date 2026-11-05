@@ -15,11 +15,8 @@
  */
 
 /*
- * Screen capture entry points for qt5-qpa-hwcomposer-plugin which resolves with
- * android_dlsym() and renders the display into the Surface of the recorder
- * registered with sailfish.screencap. Called on the compositor's render thread:
- * a session query reads the state the service pushes, and only connecting to the
- * service and acquiring a target make Binder calls.
+ * Screen capture entry points for qt5-qpa-hwcomposer-plugin, resolved with android_dlsym().
+ * They run on the compositor's render thread; the callback runs on a Binder thread.
  */
 
 #include <inttypes.h>
@@ -37,6 +34,14 @@
 using namespace android;
 using namespace sailfish;
 
+/* Callback events */
+enum {
+  MINISF_SCREEN_CAPTURE_SESSION_CHANGED = 1,
+  MINISF_SCREEN_CAPTURE_FRAME_REQUESTED = 2,
+};
+
+typedef void (*MinisfScreenCaptureCallback)(void *user, int event);
+
 struct MinisfScreenCaptureTarget {
   sp<Surface> surface;
   uint64_t generation;
@@ -51,23 +56,55 @@ static sp<IScreenCaptureService> s_service{};
 static ScreenCaptureSession s_session{};
 static nsecs_t s_nextConnectNs{};
 
-/* Receives session changes or death notification of minisfservice on Binder */
+// s_callbackLock guards the callback and is held while it runs, so that
+// clearing the callback waits for a running one. Never taken under s_lock.
+static Mutex s_callbackLock{};
+static MinisfScreenCaptureCallback s_callback{};
+static void *s_callbackUser{};
+
+static void notify(int event)
+{
+  Mutex::Autolock lock(s_callbackLock);
+  if (s_callback) {
+    s_callback(s_callbackUser, event);
+  }
+}
+
+/* Receives session changes, frame requests and the death of minisfservice on
+ * Binder threads. */
 class SessionListener : public BnScreenCaptureSessionListener,
                         public IBinder::DeathRecipient
 {
 public:
   void sessionChanged(const ScreenCaptureSession& session) override {
-    Mutex::Autolock lock(s_lock);
-    s_session = session;
+    {
+      Mutex::Autolock lock(s_lock);
+      s_session = session;
+    }
+    notify(MINISF_SCREEN_CAPTURE_SESSION_CHANGED);
+  }
+
+  void frameRequested(int64_t generation) override {
+    {
+      Mutex::Autolock lock(s_lock);
+      if (generation == 0 || s_session.generation != generation) {
+        return;
+      }
+    }
+    notify(MINISF_SCREEN_CAPTURE_FRAME_REQUESTED);
   }
 
   void binderDied(const wp<IBinder>& who) override {
-    Mutex::Autolock lock(s_lock);
-    if (s_service != NULL && IInterface::asBinder(s_service).get() == who.unsafe_get()) {
+    {
+      Mutex::Autolock lock(s_lock);
+      if (s_service == NULL || IInterface::asBinder(s_service).get() != who.unsafe_get()) {
+        return;
+      }
       ALOGW("%s died", ScreenCaptureService::getServiceName());
       s_service.clear();
       s_session = {};
     }
+    notify(MINISF_SCREEN_CAPTURE_SESSION_CHANGED);
   }
 };
 
@@ -123,6 +160,7 @@ static bool connectLocked()
 
 extern "C" {
 
+/* Returns 0 and a zeroed session when there is none. */
 int minisf_screen_capture_session_query(ScreenCaptureSession *info)
 {
   Mutex::Autolock lock(s_lock);
@@ -133,6 +171,15 @@ int minisf_screen_capture_session_query(ScreenCaptureSession *info)
 
   *info = s_session;
   return 1;
+}
+
+/* Sets the callback for MINISF_SCREEN_CAPTURE_* events, called on a Binder thread. It may call
+ * the query, but not this function; passing NULL waits for a running callback to return. */
+void minisf_screen_capture_set_callback(MinisfScreenCaptureCallback callback, void *user)
+{
+  Mutex::Autolock lock(s_callbackLock);
+  s_callback = callback;
+  s_callbackUser = user;
 }
 
 void *minisf_screen_capture_target_acquire_generation(uint64_t generation)
@@ -146,10 +193,9 @@ void *minisf_screen_capture_target_acquire_generation(uint64_t generation)
     return NULL;
   }
 
-  int width, height, fps;
-  int64_t current = 0;
-  sp<IGraphicBufferProducer> producer = service->getProducer(&width, &height, &fps, &current);
-  if (producer == NULL || (uint64_t)current != generation) {
+  ScreenCaptureSession current;
+  sp<IGraphicBufferProducer> producer = service->getProducer(&current);
+  if (producer == NULL || (uint64_t)current.generation != generation) {
     return NULL;
   }
 

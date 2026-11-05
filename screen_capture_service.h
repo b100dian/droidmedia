@@ -24,7 +24,16 @@
 
 #include <vector>
 
+#include "droidmedia.h"
+
 namespace sailfish {
+
+/* Who renders into a session. The values are droidmedia's
+ * DroidMediaScreenCaptureTarget and libminisf's session target. */
+enum ScreenCaptureTarget {
+  SCREEN_CAPTURE_TARGET_DISPLAY = 0,  // the compositor mirrors the display
+  SCREEN_CAPTURE_TARGET_VIRTUAL = 1,  // a renderer of its own, not the display
+};
 
 /* qt5-qpa-hwcomposer-plugin declares the same layout; keep them in sync. */
 struct ScreenCaptureSession {
@@ -32,7 +41,13 @@ struct ScreenCaptureSession {
   int width;
   int height;
   int fps;
+  int target;          // ScreenCaptureTarget
+  // Where the picture goes in the frame, top-left origin; all 0: the whole frame.
+  DroidMediaRect content_rect;
 };
+
+/* A known target, and a content rect that is all 0 or inside width x height. */
+bool screenCaptureTargetValid(int width, int height, int target, const DroidMediaRect& rect);
 
 /* Implemented by the compositor (through libminisf). Calls are oneway. */
 class IScreenCaptureSessionListener : public android::IInterface
@@ -41,6 +56,8 @@ public:
   DECLARE_META_INTERFACE(ScreenCaptureSessionListener);
 
   virtual void sessionChanged(const ScreenCaptureSession& session) = 0;
+  /* The recorder asks for a frame of the given session, even if the screen is idle. */
+  virtual void frameRequested(int64_t generation) = 0;
 };
 
 class BnScreenCaptureSessionListener :
@@ -52,12 +69,9 @@ public:
 };
 
 /*
- * sailfish.screencap service pairs a screen recorder with the compositor.
- *
- * The recorder (droidmediascreencapture.cpp) registers the input Surface producer
- * of its hardware encoder. The compositor subscribes through libminisf
- * (minisf_screen_capture.cpp), and is notified of every session change and
- * renders the display into that Surface. There is one session at a time.
+ * sailfish.screencap pairs a recorder (droidmediascreencapture.cpp), which registers its
+ * encoder's input Surface, with the renderers subscribed through libminisf
+ * (minisf_screen_capture.cpp). One session at a time; its target says who renders.
  */
 class IScreenCaptureService : public android::IInterface
 {
@@ -65,18 +79,20 @@ public:
   DECLARE_META_INTERFACE(ScreenCaptureService);
 
   /* Returns NULL when no recorder is registered. */
-  virtual android::sp<android::IGraphicBufferProducer> getProducer(int *width, int *height,
-                                                                   int *fps,
-                                                                   int64_t *generation) = 0;
-  /* Replaces any current session. Returns its generation, or 0 on failure. */
+  virtual android::sp<android::IGraphicBufferProducer> getProducer(
+    ScreenCaptureSession *session) = 0;
+  /* Replaces any current session with session, whose generation is ignored.
+   * Returns the new generation, or 0 on failure. */
   virtual int64_t registerProducer(const android::sp<android::IGraphicBufferProducer>& producer,
-                                   int width, int height, int fps) = 0;
+                                   const ScreenCaptureSession& session) = 0;
   /* Ends the session if it is still the given generation. */
   virtual void unregisterProducer(int64_t generation) = 0;
   /* Calls listener->sessionChanged(). Returns the current session in *session. */
   virtual android::status_t registerListener(
     const android::sp<IScreenCaptureSessionListener>& listener,
     ScreenCaptureSession *session) = 0;
+  /* Oneway. Calls listener->frameRequested() if generation is still current. */
+  virtual void requestFrame(int64_t generation) = 0;
 };
 
 class BnScreenCaptureService : public android::BnInterface<IScreenCaptureService>
@@ -96,13 +112,13 @@ public:
 
   ScreenCaptureService();
 
-  android::sp<android::IGraphicBufferProducer> getProducer(int *width, int *height, int *fps,
-                                                           int64_t *generation) override;
+  android::sp<android::IGraphicBufferProducer> getProducer(ScreenCaptureSession *session) override;
   int64_t registerProducer(const android::sp<android::IGraphicBufferProducer>& producer,
-                           int width, int height, int fps) override;
+                           const ScreenCaptureSession& session) override;
   void unregisterProducer(int64_t generation) override;
   android::status_t registerListener(const android::sp<IScreenCaptureSessionListener>& listener,
                                      ScreenCaptureSession *session) override;
+  void requestFrame(int64_t generation) override;
 
   void binderDied(const android::wp<android::IBinder>& who) override;
 
@@ -115,9 +131,7 @@ private:
   // m_lock guards the members below.
   android::Mutex m_lock;
   android::sp<android::IGraphicBufferProducer> m_producer;
-  int m_width;
-  int m_height;
-  int m_fps;
+  ScreenCaptureSession m_session;  // its generation is unused
   int64_t m_generation;
   std::vector<android::sp<IScreenCaptureSessionListener>> m_listeners;
 };

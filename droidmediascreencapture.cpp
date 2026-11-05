@@ -47,9 +47,7 @@
 
 #define DEFAULT_FINISH_TIMEOUT_MS 2000
 
-// The compositor is notified when the session ends, but a frame it is
-// already capturing may still be queued. After withdrawing the Surface, keep
-// the codec consuming briefly, so that frame lands before input ends.
+// After withdrawing the Surface, keep the codec consuming a frame the compositor still queues.
 #define DETACH_GRACE_MS 100
 
 struct _DroidMediaScreenCapture {
@@ -68,6 +66,8 @@ struct _DroidMediaScreenCapture {
     m_fps(meta->parent.fps),
     m_profile(meta->codec_specific.h264.profile),
     m_level(meta->codec_specific.h264.level),
+    m_target(DROID_MEDIA_SCREEN_CAPTURE_TARGET_DISPLAY),
+    m_content_rect(),
     m_cb_data(data),
     m_generation(0),
     m_thread_started(false),
@@ -148,8 +148,7 @@ struct _DroidMediaScreenCapture {
   }
 
   bool start() {
-    // The input Surface's producer end is served from this process and the
-    // compositor connects to it from its own, so serve Binder here.
+    // The compositor connects to the input Surface's producer, served from this process.
     android::ProcessState::self()->startThreadPool();
 
     android::sp<android::IBinder> binder = android::defaultServiceManager()->checkService(
@@ -175,9 +174,14 @@ struct _DroidMediaScreenCapture {
     }
     m_thread_started = true;
 
-    // Publish the producer only once the codec runs: the compositor may
-    // connect and queue a frame as soon as it sees the session.
-    m_generation = m_service->registerProducer(m_producer, m_width, m_height, m_fps);
+    // Publish the producer once the codec runs: the compositor may queue a frame at once.
+    sailfish::ScreenCaptureSession session = sailfish::ScreenCaptureSession();
+    session.width = m_width;
+    session.height = m_height;
+    session.fps = m_fps;
+    session.target = m_target;
+    session.content_rect = m_content_rect;
+    m_generation = m_service->registerProducer(m_producer, session);
     if (m_generation == 0) {
       ALOGE("Cannot register the input Surface");
       stopCodec();
@@ -186,7 +190,8 @@ struct _DroidMediaScreenCapture {
 
     android::Mutex::Autolock lock(m_lock);
     m_state = STARTED;
-    ALOGI("Recording %dx%d @%d fps, session %" PRId64, m_width, m_height, m_fps, m_generation);
+    ALOGI("Recording %dx%d @%d fps, target %d, session %" PRId64, m_width, m_height, m_fps,
+          m_target, m_generation);
     return true;
   }
 
@@ -302,6 +307,8 @@ struct _DroidMediaScreenCapture {
   int m_fps;
   int m_profile;
   int m_level;
+  int m_target;
+  DroidMediaRect m_content_rect;
   DroidMediaScreenCaptureCallbacks m_cb;
   void *m_cb_data;
   android::sp<android::ALooper> m_looper;
@@ -342,6 +349,27 @@ DroidMediaScreenCapture *droid_media_screen_capture_new(DroidMediaCodecEncoderMe
   }
 
   return capture;
+}
+
+bool droid_media_screen_capture_set_target(DroidMediaScreenCapture *capture,
+                                           DroidMediaScreenCaptureTarget target,
+                                           DroidMediaRect content_rect)
+{
+  android::Mutex::Autolock lock(capture->m_lock);
+  if (capture->m_state != DroidMediaScreenCapture::IDLE) {
+    return false;
+  }
+  if (!sailfish::screenCaptureTargetValid(capture->m_width, capture->m_height, target,
+                                          content_rect)) {
+    ALOGE("Invalid target %d, content %d,%d-%d,%d in %dx%d", target, content_rect.left,
+          content_rect.top, content_rect.right, content_rect.bottom, capture->m_width,
+          capture->m_height);
+    return false;
+  }
+
+  capture->m_target = target;
+  capture->m_content_rect = content_rect;
+  return true;
 }
 
 bool droid_media_screen_capture_start(DroidMediaScreenCapture *capture)
@@ -393,6 +421,27 @@ bool droid_media_screen_capture_finish(DroidMediaScreenCapture *capture, int tim
     ALOGW("Stopped before the end of the stream");
   }
   return capture->m_eos;
+}
+
+bool droid_media_screen_capture_request_sync_frame(DroidMediaScreenCapture *capture)
+{
+  // m_lock keeps finish() and stop() from tearing down meanwhile.
+  android::Mutex::Autolock lock(capture->m_lock);
+  if (capture->m_state != DroidMediaScreenCapture::STARTED) {
+    return false;
+  }
+
+  android::sp<android::AMessage> params = new android::AMessage;
+  params->setInt32("request-sync", 0);
+  android::status_t err = capture->m_codec->setParameters(params);
+  if (err != android::OK) {
+    ALOGE("Error 0x%x requesting a sync frame", -err);
+    return false;
+  }
+
+  // Surface input encodes only what the renderer sends, so ask for a frame.
+  capture->m_service->requestFrame(capture->m_generation);
+  return true;
 }
 
 void droid_media_screen_capture_stop(DroidMediaScreenCapture *capture)

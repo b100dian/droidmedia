@@ -390,12 +390,8 @@ public:
         return "permission";
     }
 
-    bool checkPermission(const String16& permission, int32_t pid, int32_t uid) {
+    bool checkPermission(const String16& permission, int32_t, int32_t) {
         if (permission == String16("android.permission.CAMERA")) {
-            return true;
-        }
-
-        if (permission == String16("android.permission.DUMP") && (uid == 0 || uid == 1000 /*system*/)) {
             return true;
         }
 
